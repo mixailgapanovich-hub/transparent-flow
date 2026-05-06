@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import '@xyflow/react/dist/style.css';
 import {
   ReactFlow,
@@ -7,46 +7,58 @@ import {
   Handle,
   Position,
 } from '@xyflow/react';
+import { Flame } from 'lucide-react';
 import { tasksToFlowElements } from '../utils/taskGraphLayout';
-
-const STATUS_RING = {
-  backlog: 'ring-slate-200',
-  'to-do': 'ring-blue-200',
-  'in-progress': 'ring-violet-200',
-  waiting: 'ring-orange-200',
-  done: 'ring-emerald-200',
-};
-
-const TAG_BADGE = {
-  Блокирующая: 'bg-red-500 text-white',
-  Ключевая: 'bg-[#FFD700] text-slate-900',
-  Обычная: 'bg-slate-100 text-slate-500',
-};
+import { TASK_STATUS_RING, TASK_TAG_BADGE } from '../theme/taskStyles';
 
 function TaskNode({ data }) {
-  const ring = STATUS_RING[data.status] ?? STATUS_RING.backlog;
-  const badge = TAG_BADGE[data.tag] ?? TAG_BADGE.Обычная;
+  const ring = TASK_STATUS_RING[data.status] ?? TASK_STATUS_RING.backlog;
+  const badge = TASK_TAG_BADGE[data.tag] ?? TASK_TAG_BADGE.Обычная;
 
   return (
     <>
-      <Handle type="target" position={Position.Left} className="!bg-slate-400 !w-2 !h-2" />
-      <div
-        className={`rounded-xl border border-slate-100 bg-white p-3 shadow-sm ring-2 ring-offset-2 ring-offset-white w-[260px] ${ring}`}
+      <Handle type="target" position={Position.Left} className="bg-slate-400! w-2! h-2!" />
+      <button
+        type="button"
+        onClick={() => data.onOpen?.(data.taskId)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            data.onOpen?.(data.taskId);
+          }
+        }}
+        className={`relative w-[260px] rounded-xl border border-slate-100 bg-white p-3 text-left shadow-sm ring-2 ring-offset-2 ring-offset-white transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3C50B4]/30 ${ring}`}
       >
-        <span className={`mb-2 inline-block text-[10px] font-bold uppercase tracking-tight rounded-md px-2 py-0.5 ${badge}`}>
+        {data.isImportant ? <Flame size={14} className="absolute right-3 top-3 text-orange-400 animate-pulse" /> : null}
+        <span className={`mb-2 inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight ${badge}`}>
           {data.tag}
         </span>
+        {data.status === 'waiting' ? (
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-orange-600">Ждём клиента</p>
+        ) : null}
         <p className="text-xs font-semibold leading-snug text-slate-800">{data.title}</p>
-      </div>
-      <Handle type="source" position={Position.Right} className="!bg-slate-400 !w-2 !h-2" />
+      </button>
+      <Handle type="source" position={Position.Right} className="bg-slate-400! w-2! h-2!" />
     </>
   );
 }
 
 const nodeTypes = { taskNode: TaskNode };
 
-export default function TasksMindMapView({ tasks }) {
-  const { nodes, edges } = useMemo(() => tasksToFlowElements(tasks), [tasks]);
+export default function TasksMindMapView({ tasks, onTaskClick }) {
+  const { nodes, edges } = useMemo(() => {
+    const flow = tasksToFlowElements(tasks);
+    return {
+      nodes: flow.nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          onOpen: onTaskClick,
+        },
+      })),
+      edges: flow.edges,
+    };
+  }, [tasks, onTaskClick]);
 
   const flowKey = useMemo(
     () =>
@@ -77,7 +89,7 @@ export default function TasksMindMapView({ tasks }) {
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} color="#e2e8f0" />
-        <Controls showInteractive={false} className="!shadow-md" />
+        <Controls showInteractive={false} className="shadow-md!" />
       </ReactFlow>
     </div>
   );

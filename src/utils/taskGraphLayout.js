@@ -2,7 +2,7 @@ const COL_WIDTH = 300;
 const ROW_GAP = 110;
 
 /**
- * @param {Array<{ id: string, title: string, tag: string, status: string, dependsOn?: string[] }>} tasks
+ * @param {Array<{ id: string, title: string, tag: string, status: string, isImportant?: boolean, dependsOn?: string[] }>} tasks
  * @returns {{ nodes: import('@xyflow/react').Node[], edges: import('@xyflow/react').Edge[] }}
  */
 export function tasksToFlowElements(tasks) {
@@ -37,7 +37,7 @@ export function tasksToFlowElements(tasks) {
         id: task.id,
         type: 'taskNode',
         position: { x: d * COL_WIDTH, y: i * ROW_GAP },
-        data: { title: task.title, tag: task.tag, status: task.status },
+        data: { taskId: task.id, title: task.title, tag: task.tag, status: task.status, isImportant: !!task.isImportant },
       });
     });
   }

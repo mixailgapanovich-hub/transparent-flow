@@ -6,7 +6,13 @@ export const COLUMNS = [
   { id: 'done', title: 'Done' },
 ];
 
-export const INITIAL_TASKS = [
+const DEFAULT_TEAM = [
+  { id: 'pm-1', name: 'Adena Admin', initials: 'AA' },
+  { id: 'pm-2', name: 'Nika PM', initials: 'NP' },
+  { id: 'mentor-1', name: 'Ilya Mentor', initials: 'IM' },
+];
+
+const RAW_TASKS = [
   {
     id: '1',
     title: 'Разработка SMM-стратегии для бренда «ЭкоПродукт»',
@@ -141,3 +147,32 @@ export const INITIAL_TASKS = [
     dependsOn: ['8'],
   },
 ];
+
+export const INITIAL_TASKS = RAW_TASKS.map((task, index) => {
+  const hasFiles = task.hasFiles ?? false;
+  const files = hasFiles
+    ? [
+        { id: `${task.id}-f1`, name: `Бриф-${task.id}.pdf`, size: '1.2 MB' },
+        { id: `${task.id}-f2`, name: `Материалы-${task.id}.zip`, size: '8.4 MB' },
+      ]
+    : [];
+
+  const comments = [
+    {
+      id: `${task.id}-c1`,
+      author: index % 2 === 0 ? 'pm' : 'client',
+      name: index % 2 === 0 ? 'PM' : 'Клиент',
+      message: index % 2 === 0 ? 'Проверяю текущий прогресс по задаче.' : 'Материалы подготовим к вечеру.',
+      at: new Date(Date.now() - (index + 1) * 60 * 60 * 1000).toISOString(),
+    },
+  ];
+
+  return {
+    ...task,
+    files,
+    comments,
+    assignees: index % 3 === 0 ? [DEFAULT_TEAM[0], DEFAULT_TEAM[2]] : [DEFAULT_TEAM[0]],
+    magicLink: task.status === 'waiting' ? `https://client.transparent-flow.app/task/${task.id}` : '',
+    isImportant: task.tag === 'Ключевая',
+  };
+});

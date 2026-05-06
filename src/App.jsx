@@ -1,15 +1,155 @@
-import React, { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Bell, Search } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
+import TaskModal from './components/task-modal/TaskModal';
 import { INITIAL_TASKS } from './data/mockData';
+import { canTransitionStatus } from './utils/taskWorkflow';
 
 export default function App() {
+  const isAdmin = true;
   const [activeTab, setActiveTab] = useState('dashboard');
   const [tasks, setTasks] = useState(INITIAL_TASKS);
   const [activeId, setActiveId] = useState(null);
-  const [selectedTask, setSelectedTask] = useState(null);
+  const [selectedTaskId, setSelectedTaskId] = useState(null);
+
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+
+  const openTask = (taskId) => {
+    setSelectedTaskId(taskId);
+  };
+
+  const closeTask = () => {
+    setSelectedTaskId(null);
+  };
+
+  const createTask = useCallback(() => {
+    const nextId = String(Math.max(...tasks.map((task) => Number(task.id)), 0) + 1);
+    const newTask = {
+      id: nextId,
+      title: 'Новая задача',
+      status: 'backlog',
+      tag: 'Обычная',
+      deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      description: '',
+      hasFiles: false,
+      history: [{ date: new Date().toISOString(), text: 'Задача создана вручную' }],
+      dependsOn: [],
+      files: [],
+      comments: [],
+      assignees: [{ id: 'pm-1', name: 'Adena Admin', initials: 'AA' }],
+      magicLink: '',
+      isImportant: false,
+    };
+    setTasks((prev) => [newTask, ...prev]);
+    setSelectedTaskId(nextId);
+  }, [tasks]);
+
+  const updateTask = (taskId, patch) => {
+    setTasks((prevTasks) =>
+      prevTasks.map((task) => {
+        if (task.id !== taskId) return task;
+        return {
+          ...task,
+          ...patch,
+          history: [
+            ...(task.history ?? []),
+            {
+              date: new Date().toISOString(),
+              text: 'Обновлено из модального окна',
+            },
+          ],
+        };
+      })
+    );
+  };
+
+  const updateTaskStatus = (taskId, nextStatus) => {
+    setTasks((prevTasks) =>
+      prevTasks.map((task) => {
+        if (task.id !== taskId) return task;
+        if (!canTransitionStatus(task.status, nextStatus, { isAdmin })) return task;
+        return {
+          ...task,
+          status: nextStatus,
+          history: [
+            ...(task.history ?? []),
+            { date: new Date().toISOString(), text: `Статус изменён: ${nextStatus}` },
+          ],
+        };
+      })
+    );
+  };
+
+  const appendTaskComment = (taskId, message) => {
+    setTasks((prevTasks) =>
+      prevTasks.map((task) => {
+        if (task.id !== taskId) return task;
+        return {
+          ...task,
+          comments: [
+            ...(task.comments ?? []),
+            {
+              id: `${task.id}-c${(task.comments ?? []).length + 1}`,
+              author: 'pm',
+              name: 'PM',
+              message,
+              at: new Date().toISOString(),
+            },
+          ],
+        };
+      })
+    );
+  };
+
+  const addTaskAssignee = (taskId, assignee) => {
+    setTasks((prevTasks) =>
+      prevTasks.map((task) => {
+        if (task.id !== taskId) return task;
+        const exists = (task.assignees ?? []).some((item) => item.id === assignee.id);
+        if (exists) return task;
+        return { ...task, assignees: [...(task.assignees ?? []), assignee] };
+      })
+    );
+  };
+
+  const requestClientUpdate = async (taskId) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    setTasks((prevTasks) =>
+      prevTasks.map((task) => {
+        if (task.id !== taskId) return task;
+        const magicLink = `https://client.transparent-flow.app/task/${task.id}?token=${Date.now()}`;
+        return {
+          ...task,
+          status: 'waiting',
+          magicLink,
+          history: [
+            ...(task.history ?? []),
+            { date: new Date().toISOString(), text: 'Запрос отправлен клиенту' },
+          ],
+        };
+      })
+    );
+  };
+
+  useEffect(() => {
+    const handleHotkeys = (event) => {
+      const target = event.target;
+      const isTyping =
+        target instanceof HTMLElement &&
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+
+      if (isTyping) return;
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        createTask();
+      }
+    };
+
+    window.addEventListener('keydown', handleHotkeys);
+    return () => window.removeEventListener('keydown', handleHotkeys);
+  }, [createTask]);
 
   return (
     // Главный контейнер на весь экран без прокрутки самого окна
@@ -68,7 +208,9 @@ export default function App() {
                   <KanbanBoard 
                     tasks={tasks} 
                     setTasks={setTasks} 
-                    onTaskClick={setSelectedTask}
+                    onTaskClick={openTask}
+                    onCreateTask={createTask}
+                    isAdmin={isAdmin}
                     activeId={activeId} 
                     setActiveId={setActiveId} 
                   />
@@ -85,6 +227,37 @@ export default function App() {
           <RightPanel />
         </div>
       </div>
+
+      <TaskModal
+        key={selectedTask?.id ?? 'empty-task-modal'}
+        task={selectedTask}
+        isAdmin={isAdmin}
+        onClose={closeTask}
+        onRequestClient={async () => {
+          if (!selectedTask) return null;
+          await requestClientUpdate(selectedTask.id);
+          return true;
+        }}
+        onSendComment={(message) => {
+          if (!selectedTask) return;
+          appendTaskComment(selectedTask.id, message);
+        }}
+        onAddAssignee={(assignee) => {
+          if (!selectedTask) return;
+          addTaskAssignee(selectedTask.id, assignee);
+        }}
+        onSave={(patch) => {
+          if (!selectedTask) {
+            window.alert('Не удалось сохранить: задача не найдена.');
+            return;
+          }
+          if (patch.status && patch.status !== selectedTask.status) {
+            updateTaskStatus(selectedTask.id, patch.status);
+          }
+          updateTask(selectedTask.id, patch);
+          closeTask();
+        }}
+      />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');

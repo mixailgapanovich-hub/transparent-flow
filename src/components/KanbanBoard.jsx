@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { 
   DndContext, closestCorners, KeyboardSensor, PointerSensor, 
   useSensor, useSensors, DragOverlay 
@@ -8,44 +8,13 @@ import {
   verticalListSortingStrategy, useSortable 
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch } from 'lucide-react';
+import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame } from 'lucide-react';
 import { COLUMNS } from '../data/mockData';
 import TasksMindMapView from './TasksMindMapView';
-
-const COLUMN_STYLES = {
-  backlog: {
-    headerText: 'text-slate-600',
-    iconText: 'text-slate-400 hover:text-slate-600',
-    container: 'bg-slate-100/70 border border-slate-200/80',
-  },
-  'to-do': {
-    headerText: 'text-blue-700',
-    iconText: 'text-blue-300 hover:text-blue-600',
-    container: 'bg-blue-50/70 border border-blue-100',
-  },
-  'in-progress': {
-    headerText: 'text-violet-700',
-    iconText: 'text-violet-300 hover:text-violet-600',
-    container: 'bg-violet-50/60 border border-violet-100',
-  },
-  waiting: {
-    headerText: 'text-orange-700',
-    iconText: 'text-orange-400 hover:text-orange-600',
-    container: 'bg-orange-50/70 border border-orange-200/80',
-  },
-  done: {
-    headerText: 'text-emerald-700',
-    iconText: 'text-emerald-300 hover:text-emerald-600',
-    container: 'bg-emerald-50/60 border border-emerald-100',
-  },
-};
+import { TASK_COLUMN_STYLES, TASK_TAG_BADGE, UI_BUTTON_STYLES } from '../theme/taskStyles';
 
 const Badge = ({ type }) => {
-  const styles = {
-    'Блокирующая': 'bg-red-500 text-white',
-    'Ключевая': 'bg-[#FFD700] text-slate-900',
-    'Обычная': 'bg-slate-100 text-slate-500',
-  };
+  const styles = TASK_TAG_BADGE;
   return (
     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-tight ${styles[type]}`}>
       {type === 'Блокирующая' ? '🔴 ' : type === 'Ключевая' ? '🟡 ' : '⚪ '}{type}
@@ -55,30 +24,49 @@ const Badge = ({ type }) => {
 
 const TaskCard = ({ task, onClick, isWaitingCol }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
-  const style = { transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.3 : 1 };
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    opacity: isDragging ? 0.65 : 1,
+    boxShadow: isDragging ? '0 16px 32px rgba(15, 23, 42, 0.16)' : undefined,
+  };
 
   const isUrgent = useMemo(() => {
     const diff = new Date(task.deadline) - new Date();
     return diff > 0 && diff < 24 * 60 * 60 * 1000;
   }, [task.deadline]);
+  const isOverdue = useMemo(() => new Date(task.deadline) < new Date(), [task.deadline]);
 
   return (
     <div
       ref={setNodeRef} style={style} {...attributes} {...listeners}
-      onClick={() => onClick(task)}
+      onClick={() => onClick(task.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          onClick(task.id);
+        }
+      }}
+      tabIndex={0}
       className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3 
-        ${isWaitingCol ? 'bg-slate-50/80 border-slate-200' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30'}`}
+        ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
+        focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-        <button className="p-1.5 bg-white border border-slate-200 rounded-md hover:text-[#3C50B4]"><Edit2 size={12} /></button>
+        <button className={`p-1.5 ${UI_BUTTON_STYLES.ghost}`} aria-label="Открыть задачу для редактирования">
+          <Edit2 size={12} />
+        </button>
       </div>
+      {task.isImportant && (
+        <Flame size={14} className="absolute right-3 top-3 text-orange-400 animate-pulse" aria-label="Важная задача" />
+      )}
       <div className="flex justify-between items-start mb-2">
         <Badge type={task.tag} />
-        {isWaitingCol && <Clock size={14} className="text-slate-400" />}
+        {isWaitingCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-600">Ждём клиента</span>}
       </div>
       <h4 className={`text-sm font-semibold mb-3 leading-tight ${isWaitingCol ? 'text-slate-500' : 'text-slate-800'}`}>{task.title}</h4>
       <div className="flex items-center justify-between mt-auto">
-        <div className={`flex items-center text-[11px] font-medium ${isUrgent ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
+        <div className={`flex items-center text-[11px] font-medium ${isOverdue ? 'text-red-500 animate-[pulse_2.4s_ease-in-out_infinite]' : isUrgent ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
           <Clock size={12} className="mr-1" />
           {new Date(task.deadline).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
         </div>
@@ -91,7 +79,7 @@ const TaskCard = ({ task, onClick, isWaitingCol }) => {
 const SortableColumn = ({ column, tasks, onTaskClick }) => {
   const { setNodeRef } = useSortable({ id: column.id });
   const isWaiting = column.id === 'waiting';
-  const columnStyle = COLUMN_STYLES[column.id] ?? COLUMN_STYLES.backlog;
+  const columnStyle = TASK_COLUMN_STYLES[column.id] ?? TASK_COLUMN_STYLES.backlog;
 
   return (
     <div className="flex h-full min-h-0 flex-col w-72 min-w-[280px]">
@@ -115,7 +103,7 @@ const SortableColumn = ({ column, tasks, onTaskClick }) => {
   );
 };
 
-export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, setActiveId }) {
+export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, setActiveId, onCreateTask }) {
   const [boardView, setBoardView] = useState('kanban');
 
   const sensors = useSensors(
@@ -128,7 +116,13 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
     const { active, over } = event;
     if (!over) return;
     const overId = over.id;
-    const newStatus = COLUMNS.find(c => c.id === overId) ? overId : tasks.find(t => t.id === overId).status;
+    const activeTask = tasks.find((task) => task.id === active.id);
+    if (!activeTask) return;
+    const newStatus = COLUMNS.find(c => c.id === overId) ? overId : tasks.find(t => t.id === overId)?.status;
+    if (!newStatus) {
+      setActiveId(null);
+      return;
+    }
     setTasks(prev => prev.map(t => t.id === active.id ? { ...t, status: newStatus } : t));
     setActiveId(null);
   };
@@ -138,7 +132,11 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="mb-8 flex w-full flex-wrap items-center justify-between gap-4">
-        <button className="bg-[#3C50B4] text-white px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onCreateTask}
+          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2`}
+        >
           <Plus size={20} /> Создать задачу
         </button>
         <div
@@ -189,7 +187,7 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
           </div>
           <DragOverlay>
             {activeId && activeTask ? (
-              <div className="opacity-80 scale-105 rotate-2">
+              <div className="scale-[1.02] rotate-1">
                 <TaskCard task={activeTask} onClick={() => {}} />
               </div>
             ) : null}
@@ -197,7 +195,7 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
         </DndContext>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <TasksMindMapView tasks={tasks} />
+          <TasksMindMapView tasks={tasks} onTaskClick={onTaskClick} />
         </div>
       )}
     </div>
