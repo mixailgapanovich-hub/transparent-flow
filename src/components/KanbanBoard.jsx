@@ -102,6 +102,55 @@ const SortableColumn = ({ column, tasks, onTaskClick }) => {
     </div>
   );
 };
+const BoardProgress = ({ tasks }) => {
+  const stats = useMemo(() => {
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.status === 'done').length;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const totalPoints = tasks.reduce((acc, t) => acc + (t.storyPoints || 1), 0);
+    const completedPoints = tasks
+      .filter(t => t.status === 'done')
+      .reduce((acc, t) => acc + (t.storyPoints || 1), 0);
+    const remainingPoints = totalPoints - completedPoints;
+
+    return { percentage, completed, total, remainingPoints };
+  }, [tasks]);
+
+  return (
+    <div className="flex-1 max-w-md px-10 group relative cursor-help">
+      <div className="w-full space-y-2">
+        <div className="flex justify-between items-end">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Статус спринта</span>
+          <span className="text-sm font-black text-[#3C50B4] bg-[#3C50B4]/5 px-2 py-0.5 rounded-lg">{stats.percentage}%</span>
+        </div>
+        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden p-[1px] border border-slate-200/50">
+          <div 
+            className="h-full bg-[#3C50B4] rounded-full transition-all duration-1000 ease-out shadow-[0_0_12px_rgba(60,80,180,0.3)]" 
+            style={{ width: `${stats.percentage}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Тултип: теперь опускается ВНИЗ (top-full) */}
+      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-max opacity-0 group-hover:opacity-100 transition-all pointer-events-none transform -translate-y-2 group-hover:translate-y-0 z-[100]">
+        <div className="bg-slate-900 text-white text-[11px] p-5 rounded-[24px] shadow-2xl flex flex-col gap-3 border border-white/10 backdrop-blur-xl">
+          
+          {/* Треугольник (носик) теперь сверху и смотрит вверх */}
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-b-slate-900" />
+          
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-green-400" />
+            <span className="font-bold uppercase tracking-wider">Выполнено: {stats.completed} / {stats.total} задач</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-blue-400" />
+            <span className="font-bold uppercase tracking-wider">Осталось: {stats.remainingPoints} Story Points</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, setActiveId, onCreateTask }) {
   const [boardView, setBoardView] = useState('kanban');
@@ -132,15 +181,22 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="mb-8 flex w-full flex-wrap items-center justify-between gap-4">
+        
+        {/* 1. Кнопка создания — остается слева */}
         <button
           type="button"
           onClick={onCreateTask}
-          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2`}
+          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 flex-shrink-0`}
         >
           <Plus size={20} /> Создать задачу
         </button>
+
+        {/* 2. Твой новый прогресс-бар — теперь в центре */}
+        <BoardProgress tasks={tasks} />
+
+        {/* 3. Переключатель режимов — уходит вправо */}
         <div
-          className="flex rounded-2xl border border-slate-200 bg-slate-50/90 p-1 shadow-sm"
+          className="flex rounded-2xl border border-slate-200 bg-slate-50/90 p-1 shadow-sm flex-shrink-0"
           role="group"
           aria-label="Режим отображения доски"
         >

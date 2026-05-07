@@ -1,7 +1,8 @@
 import React from 'react';
 import { Zap, LayoutDashboard, FolderOpen, CheckSquare, BookOpen, Settings } from 'lucide-react';
 
-export default function Sidebar({ activeTab, setActiveTab }) {
+// Добавляем onSettingsClick в деструктуризацию пропсов
+export default function Sidebar({ activeTab, setActiveTab, onSettingsClick }) {
   const menuItems = [
     { id: 'dashboard', icon: LayoutDashboard },
     { id: 'projects', icon: FolderOpen },
@@ -32,7 +33,11 @@ export default function Sidebar({ activeTab, setActiveTab }) {
         ))}
       </nav>
 
-      <button className="mt-auto p-4 text-slate-300 hover:text-[#3C50B4] transition-colors">
+      {/* ПРИВЯЗЫВАЕМ ОНКЛИК ТУТ */}
+      <button 
+        onClick={onSettingsClick} 
+        className="mt-auto p-4 text-slate-300 hover:text-[#3C50B4] transition-colors"
+      >
         <Settings size={24} />
       </button>
     </aside>

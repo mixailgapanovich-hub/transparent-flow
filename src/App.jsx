@@ -8,6 +8,7 @@ import { INITIAL_TASKS } from './data/mockData';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
 import KnowledgeBase from './components/KnowledgeBase';
+import SettingsModal from './components/SettingsModal';
 
 export default function App() {
   const isAdmin = true;
@@ -15,6 +16,7 @@ export default function App() {
   const [tasks, setTasks] = useState(INITIAL_TASKS);
   const [activeId, setActiveId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
@@ -158,7 +160,10 @@ export default function App() {
     <div className="flex h-screen w-screen bg-white text-slate-800 font-montserrat overflow-hidden">
       
       {/* 1. Левый сайдбар — теперь он просто занимает свои 96 пикселей, ни на что не наступая */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} 
+      onSettingsClick={() => setIsSettingsOpen(true)}
+     
+      />
 
       {/* 2. Основной контент (Центр + Право) */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
@@ -263,6 +268,11 @@ export default function App() {
           updateTask(selectedTask.id, patch);
           closeTask();
         }}
+      />
+
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
       />
 
       <style>{`
