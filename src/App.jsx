@@ -6,6 +6,8 @@ import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import { INITIAL_TASKS } from './data/mockData';
 import { canTransitionStatus } from './utils/taskWorkflow';
+import ProjectsView from './components/ProjectsView';
+import KnowledgeBase from './components/KnowledgeBase';
 
 export default function App() {
   const isAdmin = true;
@@ -204,22 +206,26 @@ export default function App() {
               
               {/* Внутренний скролл только для доски */}
               <div className="flex-1 overflow-x-auto p-8 custom-scrollbar">
-                {activeTab === 'dashboard' ? (
-                  <KanbanBoard 
-                    tasks={tasks} 
-                    setTasks={setTasks} 
-                    onTaskClick={openTask}
-                    onCreateTask={createTask}
-                    isAdmin={isAdmin}
-                    activeId={activeId} 
-                    setActiveId={setActiveId} 
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-slate-300 font-machine text-2xl">
-                    Раздел {activeTab}
-                  </div>
-                )}
-              </div>
+  {activeTab === 'dashboard' ? (
+    <KanbanBoard 
+      tasks={tasks} 
+      setTasks={setTasks} 
+      onTaskClick={openTask}
+      onCreateTask={createTask}
+      isAdmin={isAdmin}
+      activeId={activeId} 
+      setActiveId={setActiveId} 
+    />
+  ) : activeTab === 'projects' ? (
+    <ProjectsView />
+  ) : activeTab === 'kb' ? (
+    <KnowledgeBase />
+  ) : (
+    <div className="flex items-center justify-center h-full text-slate-300 font-machine text-2xl">
+      Раздел {activeTab} в разработке
+    </div>
+  )}
+</div>
             </div>
           </main>
 

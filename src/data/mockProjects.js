@@ -1,0 +1,67 @@
+export const MOCK_PROJECTS = [
+    {
+      id: 'p1',
+      name: 'Ребрендинг Adena Digital',
+      client: 'Adena Inc.',
+      progress: 75,
+      tasksTotal: 24,
+      tasksDone: 18,
+      deadline: '2024-06-15',
+      status: 'active',
+      category: 'Design',
+      priority: 'high',
+      members: [{id: 1, name: 'AA'}]
+    },
+    {
+      id: 'p2',
+      name: 'Разработка CRM системы',
+      client: 'Logistics Pro',
+      progress: 40,
+      tasksTotal: 48,
+      tasksDone: 19,
+      deadline: '2024-08-01',
+      status: 'active',
+      category: 'Development',
+      priority: 'medium',
+      members: [{id: 1, name: 'AA'}, {id: 2, name: 'JD'}]
+    },
+    {
+      id: 'p3',
+      name: 'SMM сопровождение (Июнь)',
+      client: 'Coffee House',
+      progress: 15,
+      tasksTotal: 12,
+      tasksDone: 2,
+      deadline: '2024-06-30',
+      status: 'waiting',
+      category: 'Marketing',
+      priority: 'low',
+      members: [{id: 3, name: 'SK'}]
+    },
+    {
+      id: 'p4',
+      name: 'Рекламная кампания YT',
+      client: 'Tech Flow',
+      progress: 95,
+      tasksTotal: 10,
+      tasksDone: 9,
+      deadline: '2024-05-28',
+      status: 'active',
+      category: 'Video',
+      priority: 'high',
+      members: [{id: 1, name: 'AA'}]
+    },
+    {
+      id: 'p5',
+      name: 'SEO Оптимизация сайта',
+      client: 'Eco Shop',
+      progress: 55,
+      tasksTotal: 30,
+      tasksDone: 17,
+      deadline: '2024-07-10',
+      status: 'paused',
+      category: 'SEO',
+      priority: 'medium',
+      members: [{id: 2, name: 'JD'}]
+    },
+  ];
