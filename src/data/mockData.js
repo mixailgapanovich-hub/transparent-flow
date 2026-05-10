@@ -1,9 +1,9 @@
 export const COLUMNS = [
-  { id: 'backlog', title: 'Backlog' },
-  { id: 'to-do', title: 'To Do' },
-  { id: 'in-progress', title: 'In Progress' },
-  { id: 'waiting', title: 'Waiting for Client' },
-  { id: 'done', title: 'Done' },
+  { id: 'backlog', title: 'Бэклог' },
+  { id: 'to-do', title: 'К выполнению' },
+  { id: 'in-progress', title: 'В работе' },
+  { id: 'waiting', title: 'Ждём клиента' },
+  { id: 'done', title: 'Готово' },
 ];
 
 const DEFAULT_TEAM = [

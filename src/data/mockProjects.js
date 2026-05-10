@@ -6,11 +6,11 @@ export const MOCK_PROJECTS = [
       progress: 75,
       tasksTotal: 24,
       tasksDone: 18,
-      deadline: '2024-06-15',
+      deadline: '2026-06-15',
       status: 'active',
-      category: 'Design',
+      category: 'Дизайн',
       priority: 'high',
-      members: [{id: 1, name: 'AA'}]
+      members: [{id: 1, name: 'AA'}, {id: 2, name: 'NP'}],
     },
     {
       id: 'p2',
@@ -19,11 +19,11 @@ export const MOCK_PROJECTS = [
       progress: 40,
       tasksTotal: 48,
       tasksDone: 19,
-      deadline: '2024-08-01',
+      deadline: '2026-08-01',
       status: 'active',
-      category: 'Development',
+      category: 'Разработка',
       priority: 'medium',
-      members: [{id: 1, name: 'AA'}, {id: 2, name: 'JD'}]
+      members: [{id: 1, name: 'AA'}, {id: 2, name: 'NP'}, {id: 3, name: 'IM'}, {id: 4, name: 'JD'}],
     },
     {
       id: 'p3',
@@ -32,11 +32,11 @@ export const MOCK_PROJECTS = [
       progress: 15,
       tasksTotal: 12,
       tasksDone: 2,
-      deadline: '2024-06-30',
+      deadline: '2026-06-30',
       status: 'waiting',
-      category: 'Marketing',
+      category: 'Маркетинг',
       priority: 'low',
-      members: [{id: 3, name: 'SK'}]
+      members: [{id: 3, name: 'SK'}],
     },
     {
       id: 'p4',
@@ -45,11 +45,11 @@ export const MOCK_PROJECTS = [
       progress: 95,
       tasksTotal: 10,
       tasksDone: 9,
-      deadline: '2024-05-28',
+      deadline: '2026-07-28',
       status: 'active',
-      category: 'Video',
+      category: 'Видео',
       priority: 'high',
-      members: [{id: 1, name: 'AA'}]
+      members: [{id: 1, name: 'AA'}],
     },
     {
       id: 'p5',
@@ -58,10 +58,10 @@ export const MOCK_PROJECTS = [
       progress: 55,
       tasksTotal: 30,
       tasksDone: 17,
-      deadline: '2024-07-10',
+      deadline: '2026-07-10',
       status: 'paused',
       category: 'SEO',
       priority: 'medium',
-      members: [{id: 2, name: 'JD'}]
+      members: [{id: 2, name: 'NP'}, {id: 3, name: 'IM'}],
     },
   ];

@@ -221,6 +221,7 @@ export default function App() {
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}
+      showColumnFilter
     />
   ) : activeTab === 'tasks' ? (
     <KanbanBoard

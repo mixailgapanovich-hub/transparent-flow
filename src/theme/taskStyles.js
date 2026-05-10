@@ -49,11 +49,11 @@ export const TASK_STATUS_BADGE = {
 };
 
 export const TASK_STATUS_LABEL = {
-  backlog: 'Backlog',
-  'to-do': 'To Do',
-  'in-progress': 'In Progress',
-  waiting: 'Waiting for Client',
-  done: 'Done',
+  backlog: 'Бэклог',
+  'to-do': 'К выполнению',
+  'in-progress': 'В работе',
+  waiting: 'Ждём клиента',
+  done: 'Готово',
 };
 
 export const PROJECT_BADGE_STYLES = {
