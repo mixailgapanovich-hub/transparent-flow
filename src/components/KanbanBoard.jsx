@@ -1,17 +1,22 @@
 import { useMemo, useState } from 'react';
-import { 
-  DndContext, closestCorners, KeyboardSensor, PointerSensor, 
-  useSensor, useSensors, DragOverlay 
+import {
+  DndContext, closestCenter, pointerWithin, KeyboardSensor, PointerSensor,
+  useSensor, useSensors, DragOverlay, useDroppable
 } from '@dnd-kit/core';
-import { 
-  SortableContext, sortableKeyboardCoordinates, 
-  verticalListSortingStrategy, useSortable 
+import {
+  SortableContext, sortableKeyboardCoordinates,
+  verticalListSortingStrategy, useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame } from 'lucide-react';
 import { COLUMNS } from '../data/mockData';
 import TasksMindMapView from './TasksMindMapView';
-import { TASK_COLUMN_STYLES, TASK_TAG_BADGE, UI_BUTTON_STYLES } from '../theme/taskStyles';
+import { TASK_COLUMN_STYLES, TASK_TAG_BADGE, UI_BUTTON_STYLES, PROJECT_BADGE_STYLES } from '../theme/taskStyles';
+
+function kanbanCollision(args) {
+  const within = pointerWithin(args);
+  return within.length > 0 ? within : closestCenter(args);
+}
 
 const Badge = ({ type }) => {
   const styles = TASK_TAG_BADGE;
@@ -22,7 +27,7 @@ const Badge = ({ type }) => {
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol }) => {
+const TaskCard = ({ task, onClick, isWaitingCol, showProjectBadge }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -37,6 +42,8 @@ const TaskCard = ({ task, onClick, isWaitingCol }) => {
   }, [task.deadline]);
   const isOverdue = useMemo(() => new Date(task.deadline) < new Date(), [task.deadline]);
 
+  const projectStyle = showProjectBadge && task.projectId ? PROJECT_BADGE_STYLES[task.projectId] : null;
+
   return (
     <div
       ref={setNodeRef} style={style} {...attributes} {...listeners}
@@ -48,7 +55,7 @@ const TaskCard = ({ task, onClick, isWaitingCol }) => {
         }
       }}
       tabIndex={0}
-      className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3 
+      className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3
         ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
@@ -72,17 +79,23 @@ const TaskCard = ({ task, onClick, isWaitingCol }) => {
         </div>
         {task.hasFiles && <Paperclip size={12} className="text-slate-300" />}
       </div>
+      {projectStyle && (
+        <div className={`flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100 ${projectStyle.text}`}>
+          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${projectStyle.dot}`} />
+          <span className="text-[10px] font-bold uppercase tracking-wide truncate">{projectStyle.label}</span>
+        </div>
+      )}
     </div>
   );
 };
 
-const SortableColumn = ({ column, tasks, onTaskClick }) => {
-  const { setNodeRef } = useSortable({ id: column.id });
+const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
+  const { setNodeRef } = useDroppable({ id: column.id });
   const isWaiting = column.id === 'waiting';
   const columnStyle = TASK_COLUMN_STYLES[column.id] ?? TASK_COLUMN_STYLES.backlog;
 
   return (
-    <div className="flex h-full min-h-0 flex-col w-72 min-w-[280px]">
+    <div className="flex h-full min-h-0 flex-col w-72 min-w-70">
       <div className="flex items-center justify-between mb-4 px-1">
         <h3 className={`text-sm font-bold uppercase tracking-widest ${columnStyle.headerText}`}>{column.title}</h3>
         <div className="flex items-center gap-1.5">
@@ -94,14 +107,23 @@ const SortableColumn = ({ column, tasks, onTaskClick }) => {
           </button>
         </div>
       </div>
-      <div ref={setNodeRef} className={`flex-1 min-h-0 rounded-2xl p-2 ${columnStyle.container}`}>
+      <div ref={setNodeRef} className={`flex-1 min-h-0 overflow-y-auto rounded-2xl p-2 custom-scrollbar ${columnStyle.container}`}>
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map(task => <TaskCard key={task.id} task={task} onClick={onTaskClick} isWaitingCol={isWaiting} />)}
+          {tasks.map(task => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              onClick={onTaskClick}
+              isWaitingCol={isWaiting}
+              showProjectBadge={showProjectBadge}
+            />
+          ))}
         </SortableContext>
       </div>
     </div>
   );
 };
+
 const BoardProgress = ({ tasks }) => {
   const stats = useMemo(() => {
     const total = tasks.length;
@@ -123,21 +145,17 @@ const BoardProgress = ({ tasks }) => {
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Статус спринта</span>
           <span className="text-sm font-black text-[#3C50B4] bg-[#3C50B4]/5 px-2 py-0.5 rounded-lg">{stats.percentage}%</span>
         </div>
-        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden p-[1px] border border-slate-200/50">
-          <div 
-            className="h-full bg-[#3C50B4] rounded-full transition-all duration-1000 ease-out shadow-[0_0_12px_rgba(60,80,180,0.3)]" 
+        <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden p-px border border-slate-200/50">
+          <div
+            className="h-full bg-[#3C50B4] rounded-full transition-all duration-1000 ease-out shadow-[0_0_12px_rgba(60,80,180,0.3)]"
             style={{ width: `${stats.percentage}%` }}
           />
         </div>
       </div>
 
-      {/* Тултип: теперь опускается ВНИЗ (top-full) */}
-      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-max opacity-0 group-hover:opacity-100 transition-all pointer-events-none transform -translate-y-2 group-hover:translate-y-0 z-[100]">
-        <div className="bg-slate-900 text-white text-[11px] p-5 rounded-[24px] shadow-2xl flex flex-col gap-3 border border-white/10 backdrop-blur-xl">
-          
-          {/* Треугольник (носик) теперь сверху и смотрит вверх */}
+      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-max opacity-0 group-hover:opacity-100 transition-all pointer-events-none transform -translate-y-2 group-hover:translate-y-0 z-100">
+        <div className="bg-slate-900 text-white text-[11px] p-5 rounded-3xl shadow-2xl flex flex-col gap-3 border border-white/10 backdrop-blur-xl">
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-b-slate-900" />
-          
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-green-400" />
             <span className="font-bold uppercase tracking-wider">Выполнено: {stats.completed} / {stats.total} задач</span>
@@ -152,8 +170,25 @@ const BoardProgress = ({ tasks }) => {
   );
 };
 
-export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, setActiveId, onCreateTask }) {
+export default function KanbanBoard({
+  tasks,
+  setTasks,
+  onTaskClick,
+  activeId,
+  setActiveId,
+  onCreateTask,
+  columns: propColumns,
+  showProjectBadge = false,
+  showColumnFilter = false,
+}) {
+  const columns = propColumns ?? COLUMNS;
   const [boardView, setBoardView] = useState('kanban');
+  const [hiddenColumnIds, setHiddenColumnIds] = useState([]);
+
+  const displayColumns = useMemo(
+    () => showColumnFilter ? columns.filter(c => !hiddenColumnIds.includes(c.id)) : columns,
+    [columns, hiddenColumnIds, showColumnFilter]
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -167,7 +202,7 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
     const overId = over.id;
     const activeTask = tasks.find((task) => task.id === active.id);
     if (!activeTask) return;
-    const newStatus = COLUMNS.find(c => c.id === overId) ? overId : tasks.find(t => t.id === overId)?.status;
+    const newStatus = columns.find(c => c.id === overId) ? overId : tasks.find(t => t.id === overId)?.status;
     if (!newStatus) {
       setActiveId(null);
       return;
@@ -178,25 +213,27 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
 
   const activeTask = useMemo(() => tasks.find(t => t.id === activeId), [activeId, tasks]);
 
+  const toggleColumn = (colId) => {
+    setHiddenColumnIds(prev =>
+      prev.includes(colId) ? prev.filter(id => id !== colId) : [...prev, colId]
+    );
+  };
+
   return (
     <div className="h-full min-h-0 flex flex-col">
-      <div className="mb-8 flex w-full flex-wrap items-center justify-between gap-4">
-        
-        {/* 1. Кнопка создания — остается слева */}
+      <div className="mb-4 flex w-full flex-wrap items-center justify-between gap-4">
         <button
           type="button"
           onClick={onCreateTask}
-          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 flex-shrink-0`}
+          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0`}
         >
           <Plus size={20} /> Создать задачу
         </button>
 
-        {/* 2. Твой новый прогресс-бар — теперь в центре */}
-        <BoardProgress tasks={tasks} />
+        {!showColumnFilter && <BoardProgress tasks={tasks} />}
 
-        {/* 3. Переключатель режимов — уходит вправо */}
         <div
-          className="flex rounded-2xl border border-slate-200 bg-slate-50/90 p-1 shadow-sm flex-shrink-0"
+          className="flex rounded-2xl border border-slate-200 bg-slate-50/90 p-1 shadow-sm shrink-0"
           role="group"
           aria-label="Режим отображения доски"
         >
@@ -227,16 +264,41 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
         </div>
       </div>
 
+      {showColumnFilter && boardView === 'kanban' && (
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mr-1">Колонки:</span>
+          {columns.map(col => {
+            const isHidden = hiddenColumnIds.includes(col.id);
+            const style = TASK_COLUMN_STYLES[col.id] ?? TASK_COLUMN_STYLES.backlog;
+            return (
+              <button
+                key={col.id}
+                onClick={() => toggleColumn(col.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${
+                  isHidden
+                    ? 'bg-slate-50 text-slate-300 border-slate-200'
+                    : `bg-white ${style.headerText} border-slate-200 shadow-sm`
+                }`}
+              >
+                {!isHidden && <div className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />}
+                {col.title}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {boardView === 'kanban' ? (
-        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={kanbanCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="flex-1 min-h-0">
             <div className="flex h-full min-h-0 items-stretch gap-8 overflow-x-auto pb-6 custom-scrollbar pr-10">
-              {COLUMNS.map((column) => (
+              {displayColumns.map((column) => (
                 <SortableColumn
                   key={column.id}
                   column={column}
                   tasks={tasks.filter((t) => t.status === column.id)}
                   onTaskClick={onTaskClick}
+                  showProjectBadge={showProjectBadge}
                 />
               ))}
             </div>
@@ -244,7 +306,7 @@ export default function KanbanBoard({ tasks, setTasks, onTaskClick, activeId, se
           <DragOverlay>
             {activeId && activeTask ? (
               <div className="scale-[1.02] rotate-1">
-                <TaskCard task={activeTask} onClick={() => {}} />
+                <TaskCard task={activeTask} onClick={() => {}} showProjectBadge={showProjectBadge} />
               </div>
             ) : null}
           </DragOverlay>

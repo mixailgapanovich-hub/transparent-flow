@@ -56,6 +56,12 @@ export const TASK_STATUS_LABEL = {
   done: 'Done',
 };
 
+export const PROJECT_BADGE_STYLES = {
+  'proj-eco': { dot: 'bg-emerald-400', text: 'text-emerald-700', label: 'ЭкоПродукт' },
+  'proj-prima': { dot: 'bg-amber-400', text: 'text-amber-700', label: 'Кофейня Прима' },
+  'proj-med': { dot: 'bg-sky-400', text: 'text-sky-700', label: 'МедСтарт' },
+};
+
 export const UI_BUTTON_STYLES = {
   primary:
     'rounded-xl bg-[#3C50B4] text-white transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3C50B4]/30 disabled:cursor-not-allowed disabled:opacity-70',

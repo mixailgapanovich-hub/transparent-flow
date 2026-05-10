@@ -13,20 +13,22 @@ const DEFAULT_TEAM = [
 ];
 
 const RAW_TASKS = [
+  // --- ЭкоПродукт (proj-eco) ---
   {
     id: '1',
+    projectId: 'proj-eco',
     title: 'Разработка SMM-стратегии для бренда «ЭкоПродукт»',
     status: 'backlog',
     tag: 'Обычная',
     deadline: '2026-06-15',
-    description:
-      'Контент-план на 3 месяца: конкуренты, сетка постов, KPI.',
+    description: 'Контент-план на 3 месяца: конкуренты, сетка постов, KPI.',
     hasFiles: true,
     history: [{ date: '2026-05-01', text: 'Задача создана' }],
     dependsOn: ['9'],
   },
   {
     id: '2',
+    projectId: 'proj-eco',
     title: 'Финальный дизайн UI-кита',
     status: 'to-do',
     tag: 'Ключевая',
@@ -38,6 +40,7 @@ const RAW_TASKS = [
   },
   {
     id: '3',
+    projectId: 'proj-eco',
     title: 'Согласование фотосессии (референсы)',
     status: 'waiting',
     tag: 'Блокирующая',
@@ -49,6 +52,7 @@ const RAW_TASKS = [
   },
   {
     id: '4',
+    projectId: 'proj-eco',
     title: 'Карта страниц и URL сайта',
     status: 'done',
     tag: 'Ключевая',
@@ -60,6 +64,7 @@ const RAW_TASKS = [
   },
   {
     id: '5',
+    projectId: 'proj-eco',
     title: 'Согласование структуры сайта с клиентом',
     status: 'done',
     tag: 'Обычная',
@@ -71,6 +76,7 @@ const RAW_TASKS = [
   },
   {
     id: '6',
+    projectId: 'proj-eco',
     title: 'Запрос текстов и медиа для страниц сайта',
     status: 'in-progress',
     tag: 'Ключевая',
@@ -82,6 +88,7 @@ const RAW_TASKS = [
   },
   {
     id: '7',
+    projectId: 'proj-eco',
     title: 'Вёрстка ключевых шаблонов',
     status: 'to-do',
     tag: 'Обычная',
@@ -93,6 +100,7 @@ const RAW_TASKS = [
   },
   {
     id: '8',
+    projectId: 'proj-eco',
     title: 'Регрессия и приёмка на staging',
     status: 'backlog',
     tag: 'Обычная',
@@ -104,6 +112,7 @@ const RAW_TASKS = [
   },
   {
     id: '9',
+    projectId: 'proj-eco',
     title: 'Брендбук и тон коммуникации',
     status: 'done',
     tag: 'Ключевая',
@@ -115,6 +124,7 @@ const RAW_TASKS = [
   },
   {
     id: '10',
+    projectId: 'proj-eco',
     title: 'Дизайн-система: компоненты в Figma',
     status: 'in-progress',
     tag: 'Ключевая',
@@ -126,6 +136,7 @@ const RAW_TASKS = [
   },
   {
     id: '11',
+    projectId: 'proj-eco',
     title: 'Запуск рекламной кампании (Meta)',
     status: 'backlog',
     tag: 'Обычная',
@@ -137,6 +148,7 @@ const RAW_TASKS = [
   },
   {
     id: '12',
+    projectId: 'proj-eco',
     title: 'Обучение клиента CMS',
     status: 'waiting',
     tag: 'Обычная',
@@ -145,6 +157,94 @@ const RAW_TASKS = [
     hasFiles: false,
     history: [{ date: '2026-05-19', text: 'Ждём дату от клиента' }],
     dependsOn: ['8'],
+  },
+
+  // --- Кофейня Прима (proj-prima) ---
+  {
+    id: '13',
+    projectId: 'proj-prima',
+    title: 'SMM-стратегия для кофейни',
+    status: 'backlog',
+    tag: 'Ключевая',
+    deadline: '2026-07-10',
+    description: 'Контент-план на лето: сторис, посты, рилс для Instagram и VK.',
+    hasFiles: false,
+    history: [{ date: '2026-05-08', text: 'Задача создана' }],
+    dependsOn: [],
+  },
+  {
+    id: '14',
+    projectId: 'proj-prima',
+    title: 'Лендинг для летнего меню',
+    status: 'in-progress',
+    tag: 'Обычная',
+    deadline: '2026-06-01',
+    description: 'Одностраничный сайт с меню, фотографиями и кнопкой брони.',
+    hasFiles: true,
+    history: [{ date: '2026-05-09', text: 'В работе у разработчика' }],
+    dependsOn: [],
+  },
+  {
+    id: '15',
+    projectId: 'proj-prima',
+    title: 'Фотосессия позиций меню',
+    status: 'waiting',
+    tag: 'Блокирующая',
+    deadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+    description: 'Ждём локацию и реквизит от клиента. Нужны референсы и дата.',
+    hasFiles: false,
+    history: [{ date: '2026-05-10', text: 'Ожидание материалов от клиента' }],
+    dependsOn: [],
+  },
+  {
+    id: '16',
+    projectId: 'proj-prima',
+    title: 'Настройка таргетированной рекламы',
+    status: 'to-do',
+    tag: 'Обычная',
+    deadline: '2026-07-15',
+    description: 'Meta Ads и VK Реклама: аудитории, креативы, UTM-метки.',
+    hasFiles: false,
+    history: [{ date: '2026-05-10', text: 'Ждёт выхода лендинга' }],
+    dependsOn: ['14'],
+  },
+
+  // --- МедСтарт (proj-med) ---
+  {
+    id: '17',
+    projectId: 'proj-med',
+    title: 'SEO-аудит сайта клиники',
+    status: 'in-progress',
+    tag: 'Ключевая',
+    deadline: '2026-05-25',
+    description: 'Технический аудит, семантическое ядро, план правок.',
+    hasFiles: true,
+    history: [{ date: '2026-05-06', text: 'Аудит начат' }],
+    dependsOn: [],
+  },
+  {
+    id: '18',
+    projectId: 'proj-med',
+    title: 'Email-рассылка по базе пациентов',
+    status: 'to-do',
+    tag: 'Обычная',
+    deadline: '2026-06-05',
+    description: 'Шаблон письма, сегментация по специализации, A/B тест.',
+    hasFiles: false,
+    history: [{ date: '2026-05-07', text: 'Написан бриф' }],
+    dependsOn: [],
+  },
+  {
+    id: '19',
+    projectId: 'proj-med',
+    title: 'Редизайн карточки врача',
+    status: 'backlog',
+    tag: 'Обычная',
+    deadline: '2026-07-01',
+    description: 'Новый макет страницы с UGC-отзывами и расписанием.',
+    hasFiles: false,
+    history: [{ date: '2026-05-09', text: 'Задача в очереди после SEO' }],
+    dependsOn: ['17'],
   },
 ];
 

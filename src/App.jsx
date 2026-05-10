@@ -32,6 +32,7 @@ export default function App() {
     const nextId = String(Math.max(...tasks.map((task) => Number(task.id)), 0) + 1);
     const newTask = {
       id: nextId,
+      projectId: 'proj-eco',
       title: 'Новая задача',
       status: 'backlog',
       tag: 'Обычная',
@@ -207,19 +208,31 @@ export default function App() {
           <main className="flex-1 bg-[#F8FAFC] p-6 overflow-hidden flex flex-col">
             
             {/* Оболочка самого канбана — "белая доска" на сером фоне */}
-            <div className="flex-1 bg-white rounded-[32px] border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
+            <div className="flex-1 bg-white rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
               
               {/* Внутренний скролл только для доски */}
               <div className="flex-1 overflow-x-auto p-8 custom-scrollbar">
   {activeTab === 'dashboard' ? (
-    <KanbanBoard 
-      tasks={tasks} 
-      setTasks={setTasks} 
+    <KanbanBoard
+      tasks={tasks.filter(t => !t.projectId || t.projectId === 'proj-eco')}
+      setTasks={setTasks}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
-      activeId={activeId} 
-      setActiveId={setActiveId} 
+      activeId={activeId}
+      setActiveId={setActiveId}
+    />
+  ) : activeTab === 'tasks' ? (
+    <KanbanBoard
+      tasks={tasks}
+      setTasks={setTasks}
+      onTaskClick={openTask}
+      onCreateTask={createTask}
+      isAdmin={isAdmin}
+      activeId={activeId}
+      setActiveId={setActiveId}
+      showProjectBadge
+      showColumnFilter
     />
   ) : activeTab === 'projects' ? (
     <ProjectsView />
