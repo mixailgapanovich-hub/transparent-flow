@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
+import GuestUploadPage from './components/GuestUploadPage';
 import { INITIAL_TASKS } from './data/mockData';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
@@ -17,6 +18,7 @@ export default function App() {
   const [activeId, setActiveId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [guestTaskId, setGuestTaskId] = useState(null);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
@@ -124,7 +126,7 @@ export default function App() {
     setTasks((prevTasks) =>
       prevTasks.map((task) => {
         if (task.id !== taskId) return task;
-        const magicLink = `https://client.transparent-flow.app/task/${task.id}?token=${Date.now()}`;
+        const magicLink = `https://client.transparent-flow.app/task/${task.id}?token=${crypto.randomUUID()}`;
         return {
           ...task,
           status: 'waiting',
@@ -136,6 +138,42 @@ export default function App() {
         };
       })
     );
+  };
+
+  const handleGuestUpload = (taskId, uploadedFiles, comment) => {
+    setTasks((prevTasks) =>
+      prevTasks.map((task) => {
+        if (task.id !== taskId) return task;
+        const newFiles = uploadedFiles.map((f, i) => ({
+          id: `${task.id}-gf${i + 1}-${Date.now()}`,
+          name: f.name,
+          size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
+        }));
+        const newComments = comment.trim()
+          ? [
+              ...(task.comments ?? []),
+              {
+                id: `${task.id}-gc-${Date.now()}`,
+                author: 'client',
+                name: 'Клиент',
+                message: comment.trim(),
+                at: new Date().toISOString(),
+              },
+            ]
+          : task.comments ?? [];
+        return {
+          ...task,
+          status: 'client-uploaded',
+          files: [...(task.files ?? []), ...newFiles],
+          comments: newComments,
+          history: [
+            ...(task.history ?? []),
+            { date: new Date().toISOString(), text: `Клиент загрузил материалы (${uploadedFiles.length} файл(ов))` },
+          ],
+        };
+      })
+    );
+    setGuestTaskId(null);
   };
 
   useEffect(() => {
@@ -155,6 +193,17 @@ export default function App() {
     window.addEventListener('keydown', handleHotkeys);
     return () => window.removeEventListener('keydown', handleHotkeys);
   }, [createTask]);
+
+  if (guestTaskId !== null) {
+    const guestTask = tasks.find((t) => t.id === guestTaskId) ?? null;
+    return (
+      <GuestUploadPage
+        task={guestTask}
+        onClose={() => setGuestTaskId(null)}
+        onUploaded={(files, comment) => handleGuestUpload(guestTaskId, files, comment)}
+      />
+    );
+  }
 
   return (
     // Главный контейнер на весь экран без прокрутки самого окна
@@ -221,7 +270,6 @@ export default function App() {
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}
-      showColumnFilter
     />
   ) : activeTab === 'tasks' ? (
     <KanbanBoard
@@ -258,6 +306,10 @@ export default function App() {
         task={selectedTask}
         isAdmin={isAdmin}
         onClose={closeTask}
+        onOpenGuestView={(taskId) => {
+          setSelectedTaskId(null);
+          setGuestTaskId(taskId);
+        }}
         onRequestClient={async () => {
           if (!selectedTask) return null;
           await requestClientUpdate(selectedTask.id);

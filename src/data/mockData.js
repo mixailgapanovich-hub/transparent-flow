@@ -3,6 +3,7 @@ export const COLUMNS = [
   { id: 'to-do', title: 'К выполнению' },
   { id: 'in-progress', title: 'В работе' },
   { id: 'waiting', title: 'Ждём клиента' },
+  { id: 'client-uploaded', title: 'Контент загружен' },
   { id: 'done', title: 'Готово' },
 ];
 
@@ -42,12 +43,15 @@ const RAW_TASKS = [
     id: '3',
     projectId: 'proj-eco',
     title: 'Согласование фотосессии (референсы)',
-    status: 'waiting',
+    status: 'client-uploaded',
     tag: 'Блокирующая',
     deadline: new Date(Date.now() + 15 * 60 * 60 * 1000).toISOString(),
     description: 'Клиент присылает референсы по свету и моделям.',
     hasFiles: true,
-    history: [{ date: '2026-05-12', text: 'Статус: ожидание клиента' }],
+    history: [
+      { date: '2026-05-12', text: 'Статус: ожидание клиента' },
+      { date: '2026-05-13', text: 'Клиент загрузил референсы — 3 файла' },
+    ],
     dependsOn: [],
   },
   {
@@ -188,12 +192,15 @@ const RAW_TASKS = [
     id: '15',
     projectId: 'proj-prima',
     title: 'Фотосессия позиций меню',
-    status: 'waiting',
+    status: 'client-uploaded',
     tag: 'Блокирующая',
     deadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
     description: 'Ждём локацию и реквизит от клиента. Нужны референсы и дата.',
-    hasFiles: false,
-    history: [{ date: '2026-05-10', text: 'Ожидание материалов от клиента' }],
+    hasFiles: true,
+    history: [
+      { date: '2026-05-10', text: 'Ожидание материалов от клиента' },
+      { date: '2026-05-13', text: 'Клиент загрузил локацию и реквизит — готово к обсуждению' },
+    ],
     dependsOn: [],
   },
   {
@@ -272,7 +279,9 @@ export const INITIAL_TASKS = RAW_TASKS.map((task, index) => {
     files,
     comments,
     assignees: index % 3 === 0 ? [DEFAULT_TEAM[0], DEFAULT_TEAM[2]] : [DEFAULT_TEAM[0]],
-    magicLink: task.status === 'waiting' ? `https://client.transparent-flow.app/task/${task.id}` : '',
+    magicLink: (task.status === 'waiting' || task.status === 'client-uploaded')
+      ? `https://client.transparent-flow.app/task/${task.id}?token=${crypto.randomUUID()}`
+      : '',
     isImportant: task.tag === 'Ключевая',
   };
 });

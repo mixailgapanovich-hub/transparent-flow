@@ -230,7 +230,7 @@ export default function KanbanBoard({
           <Plus size={20} /> Создать задачу
         </button>
 
-        <BoardProgress tasks={tasks} />
+        {!showColumnFilter && <BoardProgress tasks={tasks} />}
 
         <div
           className="flex rounded-2xl border border-slate-200 bg-slate-50/90 p-1 shadow-sm shrink-0"

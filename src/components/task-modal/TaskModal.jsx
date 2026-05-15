@@ -52,7 +52,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, onClose, onSave, onRequestClient, onSendComment, onAddAssignee, isAdmin = false }) {
+export default function TaskModal({ task, onClose, onSave, onRequestClient, onSendComment, onAddAssignee, onOpenGuestView, isAdmin = false }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -393,21 +393,32 @@ export default function TaskModal({ task, onClose, onSave, onRequestClient, onSe
                   Ссылка для клиента
                 </p>
                 <p className="mt-1 break-all text-xs text-slate-700">{task.magicLink}</p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(task.magicLink);
-                      setToast({ tone: 'info', message: 'Ссылка скопирована' });
-                      setTimeout(() => setToast(null), 2400);
-                    } catch {
-                      setToast({ tone: 'error', message: 'Не удалось скопировать ссылку' });
-                    }
-                  }}
-                  className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
-                >
-                  Копировать
-                </button>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(task.magicLink);
+                        setToast({ tone: 'info', message: 'Ссылка скопирована' });
+                        setTimeout(() => setToast(null), 2400);
+                      } catch {
+                        setToast({ tone: 'error', message: 'Не удалось скопировать ссылку' });
+                      }
+                    }}
+                    className={`px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
+                  >
+                    Копировать
+                  </button>
+                  {task.status === 'waiting' && onOpenGuestView && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenGuestView(task.id)}
+                      className={`px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.primary}`}
+                    >
+                      Открыть клиентский вид
+                    </button>
+                  )}
+                </div>
               </div>
             ) : null}
 

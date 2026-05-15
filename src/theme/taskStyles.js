@@ -19,6 +19,11 @@ export const TASK_COLUMN_STYLES = {
     iconText: 'text-orange-400 hover:text-orange-600',
     container: 'bg-orange-50/70 border border-orange-200/80',
   },
+  'client-uploaded': {
+    headerText: 'text-teal-700',
+    iconText: 'text-teal-400 hover:text-teal-600',
+    container: 'bg-teal-50/70 border border-teal-200/80',
+  },
   done: {
     headerText: 'text-emerald-700',
     iconText: 'text-emerald-300 hover:text-emerald-600',
@@ -31,6 +36,7 @@ export const TASK_STATUS_RING = {
   'to-do': 'ring-blue-200',
   'in-progress': 'ring-violet-200',
   waiting: 'ring-orange-200',
+  'client-uploaded': 'ring-teal-200',
   done: 'ring-emerald-200',
 };
 
@@ -45,6 +51,7 @@ export const TASK_STATUS_BADGE = {
   'to-do': 'bg-blue-100 text-blue-700',
   'in-progress': 'bg-violet-100 text-violet-700',
   waiting: 'bg-orange-100 text-orange-700',
+  'client-uploaded': 'bg-teal-100 text-teal-700',
   done: 'bg-emerald-100 text-emerald-700',
 };
 
@@ -53,6 +60,7 @@ export const TASK_STATUS_LABEL = {
   'to-do': 'К выполнению',
   'in-progress': 'В работе',
   waiting: 'Ждём клиента',
+  'client-uploaded': 'Контент загружен',
   done: 'Готово',
 };
 
