@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
+import NotificationsDropdown from './components/NotificationsDropdown';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
@@ -19,6 +20,7 @@ export default function App() {
   const [activeId, setActiveId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [guestTaskId, setGuestTaskId] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
@@ -230,10 +232,18 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-6">
-            <button className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors">
-              <Bell size={22} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setIsNotificationsOpen((v) => !v)}
+                className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+              >
+                <Bell size={22} />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+              </button>
+              {isNotificationsOpen && (
+                <NotificationsDropdown onClose={() => setIsNotificationsOpen(false)} />
+              )}
+            </div>
 
             <div className="flex items-center gap-3 pl-6 border-l border-slate-100">
               <div className="text-right hidden sm:block">

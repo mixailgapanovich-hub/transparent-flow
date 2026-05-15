@@ -11,6 +11,7 @@ export default function KnowledgeBase() {
   const [activeSection, setActiveSection] = useState('agency');
   const [activeCategory, setActiveCategory] = useState('all');
   const [query, setQuery] = useState('');
+  const [openArticle, setOpenArticle] = useState(null);
 
   const filteredCategories = KNOWLEDGE_CATEGORIES.filter(c => c.section === activeSection);
 
@@ -121,6 +122,7 @@ export default function KnowledgeBase() {
               {filteredArticles.map(article => (
                 <div
                   key={article.id}
+                  onClick={() => setOpenArticle(article)}
                   className="bg-[#F4F9FF] border border-blue-100 p-7 rounded-[28px] hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/50 transition-all cursor-pointer group flex flex-col h-full"
                 >
                   <div className="flex items-center justify-between mb-4">
@@ -163,6 +165,55 @@ export default function KnowledgeBase() {
           )}
         </div>
       </div>
+
+      {openArticle && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setOpenArticle(null)}
+        >
+          <div
+            className="bg-white rounded-4xl shadow-2xl w-full max-w-xl mx-4 p-10 flex flex-col gap-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-[#3C50B4] bg-blue-100/50 px-2.5 py-1 rounded-lg">
+                  {KNOWLEDGE_CATEGORIES.find(c => c.id === openArticle.category)?.title}
+                </span>
+                <h3 className="text-2xl font-black text-slate-900 font-machine leading-tight mt-3">
+                  {openArticle.title}
+                </h3>
+              </div>
+              <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0 mt-1">
+                <Clock size={12} /> {openArticle.time}
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-500 leading-relaxed font-medium">
+              {openArticle.description}
+            </p>
+
+            <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 rounded-2xl px-6 py-5 border border-slate-100">
+              Полное содержание этого материала находится в разработке. Раздел будет наполнен заказчиком по согласованной редакционной политике агентства. Здесь будут размещены пошаговые инструкции, скриншоты и видео-примеры.
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              {openArticle.tags.map(tag => (
+                <span key={tag} className="text-[10px] font-bold text-[#3C50B4] bg-blue-50 px-2.5 py-1 rounded-lg">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setOpenArticle(null)}
+              className="self-end px-6 py-3 bg-[#3C50B4] text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-[#2e3e8e] transition-colors"
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
