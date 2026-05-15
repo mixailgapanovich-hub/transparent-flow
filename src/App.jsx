@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, Search } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
@@ -228,11 +228,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-6">
-            <div className="relative hidden xl:block">
-              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-              <input className="bg-slate-50 border-none rounded-xl pl-10 pr-4 py-2 text-sm w-80 focus:ring-2 focus:ring-[#3C50B4]/20 transition-all" placeholder="Поиск по проектам и задачам..." />
-            </div>
-
             <button className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors">
               <Bell size={22} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>

@@ -409,7 +409,7 @@ export default function TaskModal({ task, onClose, onSave, onRequestClient, onSe
                   >
                     Копировать
                   </button>
-                  {task.status === 'waiting' && onOpenGuestView && (
+                  {task.magicLink && onOpenGuestView && (
                     <button
                       type="button"
                       onClick={() => onOpenGuestView(task.id)}

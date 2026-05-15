@@ -27,7 +27,7 @@ const Badge = ({ type }) => {
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol, showProjectBadge }) => {
+const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -56,7 +56,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, showProjectBadge }) => {
       }}
       tabIndex={0}
       className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3
-        ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
+        ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -70,8 +70,9 @@ const TaskCard = ({ task, onClick, isWaitingCol, showProjectBadge }) => {
       <div className="flex justify-between items-start mb-2">
         <Badge type={task.tag} />
         {isWaitingCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-600">Ждём клиента</span>}
+        {isClientUploadedCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-600">Контент готов</span>}
       </div>
-      <h4 className={`text-sm font-semibold mb-3 leading-tight ${isWaitingCol ? 'text-slate-500' : 'text-slate-800'}`}>{task.title}</h4>
+      <h4 className={`text-sm font-semibold mb-3 leading-tight ${isWaitingCol ? 'text-slate-500' : isClientUploadedCol ? 'text-teal-700' : 'text-slate-800'}`}>{task.title}</h4>
       <div className="flex items-center justify-between mt-auto">
         <div className={`flex items-center text-[11px] font-medium ${isOverdue ? 'text-red-500 animate-[pulse_2.4s_ease-in-out_infinite]' : isUrgent ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
           <Clock size={12} className="mr-1" />
@@ -92,6 +93,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, showProjectBadge }) => {
 const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
   const { setNodeRef } = useDroppable({ id: column.id });
   const isWaiting = column.id === 'waiting';
+  const isClientUploaded = column.id === 'client-uploaded';
   const columnStyle = TASK_COLUMN_STYLES[column.id] ?? TASK_COLUMN_STYLES.backlog;
 
   return (
@@ -115,6 +117,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
               task={task}
               onClick={onTaskClick}
               isWaitingCol={isWaiting}
+              isClientUploadedCol={isClientUploaded}
               showProjectBadge={showProjectBadge}
             />
           ))}
