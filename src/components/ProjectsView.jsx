@@ -22,7 +22,7 @@ const STATUS_DOT = {
 
 const MAX_VISIBLE_MEMBERS = 3;
 
-export default function ProjectsView() {
+export default function ProjectsView({ onOpenProject }) {
   return (
     <div className="space-y-10 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
@@ -45,6 +45,7 @@ export default function ProjectsView() {
           return (
             <div
               key={project.id}
+              onClick={() => onOpenProject?.(project.id)}
               className="group bg-[#F4F9FF] border border-blue-100 p-7 rounded-4xl hover:border-blue-300 hover:shadow-2xl hover:shadow-blue-100/50 transition-all cursor-pointer relative flex flex-col h-full"
             >
               <div className="absolute top-6 right-6 w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-400 opacity-0 group-hover:opacity-100 transition-all group-hover:rotate-12">

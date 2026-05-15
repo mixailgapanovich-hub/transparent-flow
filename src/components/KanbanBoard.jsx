@@ -8,7 +8,7 @@ import {
   verticalListSortingStrategy, useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame } from 'lucide-react';
+import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame, X } from 'lucide-react';
 import { COLUMNS } from '../data/mockData';
 import TasksMindMapView from './TasksMindMapView';
 import { TASK_COLUMN_STYLES, TASK_TAG_BADGE, UI_BUTTON_STYLES, PROJECT_BADGE_STYLES } from '../theme/taskStyles';
@@ -183,6 +183,8 @@ export default function KanbanBoard({
   columns: propColumns,
   showProjectBadge = false,
   showColumnFilter = false,
+  projectFilterLabel = null,
+  onClearProjectFilter = null,
 }) {
   const columns = propColumns ?? COLUMNS;
   const [boardView, setBoardView] = useState('kanban');
@@ -234,6 +236,19 @@ export default function KanbanBoard({
         </button>
 
         {!showColumnFilter && <BoardProgress tasks={tasks} />}
+
+        {projectFilterLabel && onClearProjectFilter && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[#3C50B4]/5 border border-[#3C50B4]/20 rounded-xl text-[#3C50B4] shrink-0">
+            <span className="text-[11px] font-black uppercase tracking-wider">Проект: {projectFilterLabel}</span>
+            <button
+              onClick={onClearProjectFilter}
+              className="ml-1 hover:text-[#3C50B4]/60 transition-colors"
+              aria-label="Сбросить фильтр по проекту"
+            >
+              <X size={13} strokeWidth={3} />
+            </button>
+          </div>
+        )}
 
         <div
           className="flex rounded-2xl border border-slate-200 bg-slate-50/90 p-1 shadow-sm shrink-0"

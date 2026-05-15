@@ -6,6 +6,7 @@ import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
 import { INITIAL_TASKS } from './data/mockData';
+import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
 import KnowledgeBase from './components/KnowledgeBase';
@@ -19,6 +20,7 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [guestTaskId, setGuestTaskId] = useState(null);
+  const [projectFilter, setProjectFilter] = useState(null);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
@@ -268,7 +270,7 @@ export default function App() {
     />
   ) : activeTab === 'tasks' ? (
     <KanbanBoard
-      tasks={tasks}
+      tasks={projectFilter ? tasks.filter(t => t.projectId === projectFilter) : tasks}
       setTasks={setTasks}
       onTaskClick={openTask}
       onCreateTask={createTask}
@@ -277,9 +279,11 @@ export default function App() {
       setActiveId={setActiveId}
       showProjectBadge
       showColumnFilter
+      projectFilterLabel={projectFilter ? (PROJECT_BADGE_STYLES[projectFilter]?.label ?? projectFilter) : null}
+      onClearProjectFilter={() => setProjectFilter(null)}
     />
   ) : activeTab === 'projects' ? (
-    <ProjectsView />
+    <ProjectsView onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
   ) : (
@@ -292,7 +296,7 @@ export default function App() {
           </main>
 
           {/* Правая панель (Utility Panel) */}
-          <RightPanel />
+          <RightPanel onCreateTask={createTask} onOpenKb={() => setActiveTab('kb')} />
         </div>
       </div>
 
