@@ -214,9 +214,10 @@ export default function App() {
     <div className="flex h-screen w-screen bg-white text-slate-800 font-montserrat overflow-hidden">
       
       {/* 1. Левый сайдбар — теперь он просто занимает свои 96 пикселей, ни на что не наступая */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} 
-      onSettingsClick={() => setIsSettingsOpen(true)}
-     
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={(tab) => { setActiveTab(tab); setProjectFilter(null); }}
+        onSettingsClick={() => setIsSettingsOpen(true)}
       />
 
       {/* 2. Основной контент (Центр + Право) */}
