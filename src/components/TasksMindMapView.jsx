@@ -36,6 +36,9 @@ function TaskNode({ data }) {
         {data.status === 'waiting' ? (
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-orange-600">Ждём клиента</p>
         ) : null}
+        {data.status === 'client-uploaded' ? (
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-teal-600">Контент загружен</p>
+        ) : null}
         <p className="text-xs font-semibold leading-snug text-slate-800">{data.title}</p>
       </button>
       <Handle type="source" position={Position.Right} className="bg-slate-400! w-2! h-2!" />

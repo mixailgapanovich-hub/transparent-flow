@@ -234,6 +234,11 @@ export default function TaskModal({ task, onClose, onSave, onRequestClient, onSe
                   ))
                 )}
               </div>
+              {draft.status === 'client-uploaded' && (
+                <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700">
+                  Клиент загрузил материалы — можно ответить или продолжить работу.
+                </div>
+              )}
               <div className="mt-3 flex items-center gap-2">
                 <input
                   value={commentDraft}
@@ -245,7 +250,13 @@ export default function TaskModal({ task, onClose, onSave, onRequestClient, onSe
                       handleSendComment();
                     }
                   }}
-                  placeholder={draft.status === 'waiting' ? 'Ожидаем материалы от клиента' : 'Написать комментарий...'}
+                  placeholder={
+                    draft.status === 'waiting'
+                      ? 'Ожидаем материалы от клиента'
+                      : draft.status === 'client-uploaded'
+                      ? 'Подтвердите получение или задайте вопрос...'
+                      : 'Написать комментарий...'
+                  }
                   className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20 disabled:bg-slate-100 disabled:text-slate-400"
                 />
                 <button
