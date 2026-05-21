@@ -6,7 +6,7 @@ import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
-import { INITIAL_TASKS } from './data/mockData';
+import { api } from './api/client';
 import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
@@ -16,13 +16,37 @@ import SettingsModal from './components/SettingsModal';
 export default function App() {
   const isAdmin = true;
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const [tasks, setTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksError, setTasksError] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [guestTaskId, setGuestTaskId] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
+
+  // Подтягиваем задачи с бэка один раз при монтировании.
+  // Мутации пока локальные (Итерация 2: read-only API).
+  useEffect(() => {
+    let cancelled = false;
+    setTasksLoading(true);
+    api.listTasks()
+      .then((data) => {
+        if (cancelled) return;
+        setTasks(data);
+        setTasksError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[App] не удалось загрузить задачи:', err);
+        setTasksError(err.message ?? 'Не удалось загрузить задачи');
+      })
+      .finally(() => {
+        if (!cancelled) setTasksLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
@@ -35,7 +59,9 @@ export default function App() {
   };
 
   const createTask = useCallback(() => {
-    const nextId = String(Math.max(...tasks.map((task) => Number(task.id)), 0) + 1);
+    // Локальный id — UUID, чтобы не конфликтовать с серверными UUID-ами.
+    // Эта задача живёт только в локальном state до Итерации 3 (POST /api/tasks).
+    const nextId = crypto.randomUUID();
     const newTask = {
       id: nextId,
       projectId: 'proj-eco',
@@ -269,7 +295,19 @@ export default function App() {
               
               {/* Внутренний скролл только для доски */}
               <div className="flex-1 overflow-x-auto p-8 custom-scrollbar">
-  {activeTab === 'dashboard' ? (
+  {(activeTab === 'dashboard' || activeTab === 'tasks') && tasksLoading ? (
+    <div className="flex items-center justify-center h-full text-slate-400 font-machine text-sm">
+      Загружаем задачи...
+    </div>
+  ) : (activeTab === 'dashboard' || activeTab === 'tasks') && tasksError ? (
+    <div className="flex flex-col items-center justify-center h-full text-red-500 text-sm gap-3">
+      <div className="font-machine text-base">Ошибка загрузки</div>
+      <div className="text-slate-500">{tasksError}</div>
+      <div className="text-[10px] text-slate-400 uppercase tracking-widest">
+        Проверьте, что API запущен: <code>cd api && npm run dev</code>
+      </div>
+    </div>
+  ) : activeTab === 'dashboard' ? (
     <KanbanBoard
       tasks={tasks.filter(t => !t.projectId || t.projectId === 'proj-eco')}
       setTasks={setTasks}

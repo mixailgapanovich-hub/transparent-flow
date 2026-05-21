@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { pool } from './db/pool.js';
+import projectsRouter from './routes/projects.js';
+import tasksRouter from './routes/tasks.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -27,6 +29,9 @@ app.get('/api/health', async (_req, res) => {
     time: new Date().toISOString(),
   });
 });
+
+app.use('/api/projects', projectsRouter);
+app.use('/api/tasks', tasksRouter);
 
 // 404 fallback
 app.use((req, res) => {
