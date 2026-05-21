@@ -19,11 +19,9 @@ function formatHistoryDate(date) {
   return parsed.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-const TEAM_OPTIONS = [
-  { id: 'pm-2', name: 'Nika PM', initials: 'NP' },
-  { id: 'mentor-1', name: 'Ilya Mentor', initials: 'IM' },
-  { id: 'pm-3', name: 'Dina PM', initials: 'DP' },
-];
+// Команда теперь приходит как prop из App.jsx (загружается с /api/users).
+// Если prop пустой (например, во время первичной загрузки), выпадашка
+// просто покажет «нет доступных кандидатов».
 
 function formatCommentDate(date) {
   const parsed = new Date(date);
@@ -52,7 +50,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, onClose, onSave, onRequestClient, onSendComment, onAddAssignee, onOpenGuestView, isAdmin = false }) {
+export default function TaskModal({ task, team = [], onClose, onSave, onRequestClient, onSendComment, onAddAssignee, onOpenGuestView, isAdmin = false }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -108,7 +106,7 @@ export default function TaskModal({ task, onClose, onSave, onRequestClient, onSe
     () => getAllowedStatuses(task?.status ?? 'backlog', { isAdmin }),
     [task?.status, isAdmin]
   );
-  const availableAssignees = TEAM_OPTIONS.filter(
+  const availableAssignees = team.filter(
     (candidate) => !(task?.assignees ?? []).some((item) => item.id === candidate.id)
   );
 
@@ -369,7 +367,7 @@ export default function TaskModal({ task, onClose, onSave, onRequestClient, onSe
               <select
                 disabled={availableAssignees.length === 0}
                 onChange={(event) => {
-                  const assignee = TEAM_OPTIONS.find((item) => item.id === event.target.value);
+                  const assignee = team.find((item) => item.id === event.target.value);
                   if (!assignee) return;
                   onAddAssignee?.(assignee);
                   event.target.value = '';

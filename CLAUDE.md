@@ -6,7 +6,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 **"Прозрачный поток"** (Transparent Flow) — Kanban demo for a digital agency task management system. Built as a diploma thesis prototype for **АденаДиджитал**, a digital agency that manages creative/web projects for clients.
 
-**Scope:** React frontend + Express/PostgreSQL backend, in active iterative buildout. As of Iteration 2 the backend is read-only — frontend loads tasks/projects from the API but all mutations (drag-drop, edit, create) still happen in local React state. Writes land in Iteration 3.
+**Scope:** React frontend + Express/PostgreSQL backend, in active iterative buildout. As of Iteration 3 writes land on the server: drag-and-drop, edit, comments, assignees, create-task, and "request client content" all persist to Postgres and survive page refresh. Outstanding: magic-link / guest-upload page is still local-only (Iteration 4); login + role enforcement (Iteration 5).
 
 **Business problem it solves:** Agency teams lose track of client tasks across email chains. This dashboard gives PMs a central board; clients get a read-only "magic link" to see their task status and upload materials without needing an account.
 
@@ -196,15 +196,26 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 
 ## Backend Notes
 
-### API surface (Iteration 2)
-| Method | Path | Returns |
-|--------|------|---------|
-| GET | `/api/health` | `{ok, db, service, time}` |
-| GET | `/api/projects` | Project[] with computed `tasksTotal`, `tasksDone`, `progress` |
-| GET | `/api/tasks?projectSlug=` | Task[] in frontend-DTO shape |
-| GET | `/api/tasks/:id` | Single Task, 404 if missing |
+### API surface (Iteration 3)
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| GET | `/api/health` | — | `{ok, db, service, time}` |
+| GET | `/api/users` | — | User[] (id, name, email, role, initials) |
+| GET | `/api/projects` | — | Project[] with computed `tasksTotal`, `tasksDone`, `progress` |
+| GET | `/api/tasks?projectSlug=` | — | Task[] in frontend-DTO shape |
+| GET | `/api/tasks/:id` | — | Single Task, 404 if missing |
+| POST | `/api/tasks` | `{projectSlug, title, description?, tag?, deadline?, assigneeIds?}` | Created Task (201) |
+| PATCH | `/api/tasks/:id` | partial of `{title, description, tag, deadline}` | Updated Task |
+| DELETE | `/api/tasks/:id` | — | 204 |
+| POST | `/api/tasks/:id/transition` | `{toStatus, isAdmin?}` | Updated Task. **FSM-validated server-side**; 409 on violation |
+| POST | `/api/tasks/:id/comments` | `{message, authorType?, authorName?}` | Updated Task |
+| POST | `/api/tasks/:id/assignees` | `{userId}` (UUID) | Updated Task |
+| POST | `/api/tasks/:id/request-client` | — | Updated Task with new `magicLink`, status=waiting, 72h TTL |
 
-Writes (`POST/PATCH/DELETE`) land in Iteration 3.
+All mutations:
+- Write to `task_events` (event_type=`history` for human-readable feed; `status_change`, `magic_link_issued` for structured audit).
+- Run in a single SQL transaction. The mutation returns the task UUID, then `getTaskById()` re-fetches via the pool *after* COMMIT — never read your own writes from inside the same `withTransaction` callback, because the helper uses a separate connection for selects.
+- Throw `HttpError(status, message)` from `taskService.js`; the global error middleware translates that to the HTTP response.
 
 ### Seed determinism
 `api/scripts/seed.js` maps the string IDs from frontend mocks (`'1'`, `'proj-eco'`, `'pm-1'`) into **deterministic UUIDs** via SHA-1 of `"transparent-flow.v1|<kind>|<key>"`. The bits are then forced into UUIDv5 shape. This means:
@@ -221,7 +232,11 @@ Writes (`POST/PATCH/DELETE`) land in Iteration 3.
 ### Frontend ↔ Backend ID model
 - Server returns task `id` as a UUID; frontend uses it as-is (React keys, dependsOn lookups in mind map, modal selection).
 - `task.projectId` is the project **slug** (`'proj-eco'`), not the project UUID. The dashboard's project filter compares against this slug.
-- Locally created tasks before the write API lands use `crypto.randomUUID()` in `App.jsx::createTask`.
+- `App.jsx::createTask` calls `POST /api/tasks` (no local UUIDs).
+- `App.jsx` keeps `team` state populated from `GET /api/users` and passes it to `TaskModal` as a prop, replacing the old hardcoded `TEAM_OPTIONS`.
+
+### FSM is duplicated
+`src/utils/taskWorkflow.js` (frontend) and `api/src/services/taskWorkflow.js` (backend) hold the same transition map. Keep them in sync. The frontend uses it for optimistic guards (avoid sending obvious-bad transitions); the server is the authority and will reject FSM violations with HTTP 409.
 
 ---
 

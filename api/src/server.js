@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import { pool } from './db/pool.js';
 import projectsRouter from './routes/projects.js';
 import tasksRouter from './routes/tasks.js';
+import usersRouter from './routes/users.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -32,14 +33,18 @@ app.get('/api/health', async (_req, res) => {
 
 app.use('/api/projects', projectsRouter);
 app.use('/api/tasks', tasksRouter);
+app.use('/api/users', usersRouter);
 
 // 404 fallback
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found', path: req.path });
 });
 
-// error handler
+// error handler — пробрасывает HttpError со своим status, всё остальное → 500
 app.use((err, _req, res, _next) => {
+  if (err && typeof err.status === 'number') {
+    return res.status(err.status).json({ error: err.message });
+  }
   console.error('[api] unhandled:', err);
   res.status(500).json({ error: 'Internal Server Error' });
 });

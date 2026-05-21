@@ -180,6 +180,7 @@ export default function KanbanBoard({
   activeId,
   setActiveId,
   onCreateTask,
+  onChangeStatus,
   columns: propColumns,
   showProjectBadge = false,
   showColumnFilter = false,
@@ -212,7 +213,13 @@ export default function KanbanBoard({
       setActiveId(null);
       return;
     }
-    setTasks(prev => prev.map(t => t.id === active.id ? { ...t, status: newStatus } : t));
+    if (onChangeStatus) {
+      // Через App: API-вызов + FSM-проверка + откат при ошибке.
+      onChangeStatus(active.id, newStatus);
+    } else if (setTasks) {
+      // Фоллбек на чисто локальное поведение (на случай, если кто-то использует борд без онлайна).
+      setTasks(prev => prev.map(t => t.id === active.id ? { ...t, status: newStatus } : t));
+    }
     setActiveId(null);
   };
 
