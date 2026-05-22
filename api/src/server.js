@@ -6,6 +6,7 @@ import { pool } from './db/pool.js';
 import projectsRouter from './routes/projects.js';
 import tasksRouter from './routes/tasks.js';
 import usersRouter from './routes/users.js';
+import guestRouter from './routes/guest.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -34,6 +35,7 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/projects', projectsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/guest', guestRouter);
 
 // 404 fallback
 app.use((req, res) => {

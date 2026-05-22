@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CheckCircle, CloudUpload, FileText, X } from 'lucide-react';
 import { PROJECT_BADGE_STYLES } from '../theme/taskStyles';
+import { api } from '../api/client';
 
 function DeadlineBadge({ deadline }) {
   if (!deadline) return null;
@@ -28,12 +29,26 @@ function DeadlineBadge({ deadline }) {
   );
 }
 
-export default function GuestUploadPage({ task, onClose, onUploaded }) {
+export default function GuestUploadPage({ token, onClose, onUploaded }) {
+  // task: { taskId, title, description, deadline, projectId, projectName, expiresAt }
+  const [task, setTask] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [stagedFiles, setStagedFiles] = useState([]);
   const [comment, setComment] = useState('');
-  const [uploadState, setUploadState] = useState('idle'); // idle | uploading | success
+  const [uploadState, setUploadState] = useState('idle'); // idle | uploading | success | error
+  const [uploadError, setUploadError] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Загружаем задачу по токену при открытии страницы.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    api.getGuestTask(token)
+      .then((data) => { if (!cancelled) setTask(data); })
+      .catch((err) => { if (!cancelled) setLoadError(err.detail || err.message || 'Ошибка загрузки'); });
+    return () => { cancelled = true; };
+  }, [token]);
 
   const addFiles = useCallback((incoming) => {
     const list = Array.from(incoming);
@@ -61,21 +76,52 @@ export default function GuestUploadPage({ task, onClose, onUploaded }) {
 
   const removeFile = (name) => setStagedFiles((prev) => prev.filter((f) => f.name !== name));
 
-  const handleSubmit = () => {
-    if (stagedFiles.length === 0 && !comment.trim()) return;
+  const handleSubmit = async () => {
+    if (stagedFiles.length === 0) return; // комментарий без файлов сервер не принимает
     setUploadState('uploading');
-    setTimeout(() => {
+    setUploadError(null);
+    try {
+      const updatedTask = await api.guestUpload(token, stagedFiles, comment);
       setUploadState('success');
-      setTimeout(() => {
-        onUploaded(stagedFiles, comment);
-      }, 1200);
-    }, 1500);
+      // Даём пользователю секунду полюбоваться на чекмарк, потом возвращаем.
+      setTimeout(() => onUploaded(updatedTask), 1200);
+    } catch (err) {
+      setUploadState('error');
+      setUploadError(err.detail || err.message || 'Не удалось отправить файлы');
+    }
   };
 
   const badge = task?.projectId ? PROJECT_BADGE_STYLES[task.projectId] : null;
   const deadlineLabel = task?.deadline
     ? new Date(task.deadline).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
     : null;
+
+  // Ошибка валидации токена (404/410) — ссылка протухла или уже использована.
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center font-montserrat text-slate-800 px-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md text-center space-y-4">
+          <h1 className="text-xl font-black text-slate-900">Ссылка недоступна</h1>
+          <p className="text-sm text-slate-500">{loadError}</p>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-1.5 text-[#3C50B4] hover:underline text-sm font-bold"
+          >
+            <ArrowLeft size={16} /> Вернуться
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Пока ждём данных с сервера.
+  if (!task) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center font-montserrat text-slate-400">
+        Загружаем задачу…
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col font-montserrat text-slate-800">
@@ -213,10 +259,16 @@ export default function GuestUploadPage({ task, onClose, onUploaded }) {
                 />
               </div>
 
+              {uploadState === 'error' && uploadError && (
+                <div className="mt-4 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-xs font-bold">
+                  {uploadError}
+                </div>
+              )}
+
               {/* Submit */}
               <button
                 onClick={handleSubmit}
-                disabled={stagedFiles.length === 0 && !comment.trim()}
+                disabled={stagedFiles.length === 0}
                 className="mt-4 w-full py-3 rounded-xl bg-[#3C50B4] text-white font-black text-sm tracking-wide transition hover:brightness-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Отправить материалы

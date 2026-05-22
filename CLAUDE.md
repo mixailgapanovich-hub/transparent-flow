@@ -6,7 +6,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 **"Прозрачный поток"** (Transparent Flow) — Kanban demo for a digital agency task management system. Built as a diploma thesis prototype for **АденаДиджитал**, a digital agency that manages creative/web projects for clients.
 
-**Scope:** React frontend + Express/PostgreSQL backend, in active iterative buildout. As of Iteration 3 writes land on the server: drag-and-drop, edit, comments, assignees, create-task, and "request client content" all persist to Postgres and survive page refresh. Outstanding: magic-link / guest-upload page is still local-only (Iteration 4); login + role enforcement (Iteration 5).
+**Scope:** React frontend + Express/PostgreSQL backend, in active iterative buildout. As of Iteration 4 the full PM ↔ client loop works on the server: drag-and-drop, edit, comments, assignees, create-task, "request client content" with a real magic-link token, and the guest upload page (files saved to disk, status auto-transitions to `client-uploaded`, token invalidated). Outstanding: login + role enforcement (Iteration 5).
 
 **Business problem it solves:** Agency teams lose track of client tasks across email chains. This dashboard gives PMs a central board; clients get a read-only "magic link" to see their task status and upload materials without needing an account.
 
@@ -60,6 +60,7 @@ Tailwind v4 uses `@tailwindcss/postcss` — no `tailwind.config.js`. Classes are
 | Express | 4 | HTTP framework |
 | PostgreSQL | 16 (alpine) | Database, run via Docker |
 | pg | 8 | Postgres client (`pg.Pool`) |
+| multer | 2 | Multipart file uploads (guest upload page) |
 | cors / morgan / dotenv | — | Standard middleware |
 
 No ORM — plain SQL via parameterized `pool.query()`. No NestJS, Redis, BullMQ, or S3 (those are in the diploma's "ideal" track but not in MVP; see `docs/database.sql` and the PDF spec).
@@ -181,10 +182,15 @@ api/
     │   └── pool.js                  # pg.Pool + withTransaction(fn) helper
     ├── routes/
     │   ├── projects.js              # GET /api/projects
-    │   └── tasks.js                 # GET /api/tasks, GET /api/tasks/:id
+    │   ├── tasks.js                 # GET/POST/PATCH/DELETE /api/tasks + mutation sub-routes
+    │   ├── users.js                 # GET /api/users
+    │   └── guest.js                 # GET /api/guest/:token, POST upload (multer + filters)
     └── services/
         ├── projectService.js        # listProjects() — computes tasksDone/progress from DB
-        └── taskService.js           # listTasks({projectSlug}), getTaskById(id) — assembles frontend-shape DTO
+        ├── taskService.js           # listTasks, getTaskById, all mutation helpers, exports HttpError
+        ├── taskWorkflow.js          # FSM, mirror of frontend taskWorkflow.js
+        ├── userService.js           # listUsers() — used by team dropdown
+        └── guestService.js          # getTaskByToken, applyGuestUpload — owns storage/ writes
 ```
 
 ```
@@ -196,7 +202,7 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 
 ## Backend Notes
 
-### API surface (Iteration 3)
+### API surface (Iteration 4)
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
 | GET | `/api/health` | — | `{ok, db, service, time}` |
@@ -211,6 +217,8 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 | POST | `/api/tasks/:id/comments` | `{message, authorType?, authorName?}` | Updated Task |
 | POST | `/api/tasks/:id/assignees` | `{userId}` (UUID) | Updated Task |
 | POST | `/api/tasks/:id/request-client` | — | Updated Task with new `magicLink`, status=waiting, 72h TTL |
+| GET | `/api/guest/:token` | — | Mini DTO `{taskId, title, description, deadline, projectName, expiresAt}`. 404 if token unknown, 410 if expired or task no longer in `waiting` |
+| POST | `/api/guest/:token/upload` | `multipart/form-data` with `files[]` and optional `comment` | Updated full Task. Status → `client-uploaded`, token invalidated, files written to `api/storage/<task_id>/`, audit event `client_upload` |
 
 All mutations:
 - Write to `task_events` (event_type=`history` for human-readable feed; `status_change`, `magic_link_issued` for structured audit).
@@ -234,6 +242,13 @@ All mutations:
 - `task.projectId` is the project **slug** (`'proj-eco'`), not the project UUID. The dashboard's project filter compares against this slug.
 - `App.jsx::createTask` calls `POST /api/tasks` (no local UUIDs).
 - `App.jsx` keeps `team` state populated from `GET /api/users` and passes it to `TaskModal` as a prop, replacing the old hardcoded `TEAM_OPTIONS`.
+
+### File storage (guest uploads)
+- Files go to `api/storage/<task_id>/<uuid>.<ext>` on local disk. The original filename is kept in `task_files.filename`; on disk we only store a UUID to defuse path-traversal and filename collisions.
+- `api/storage/.tmp/` is multer's staging area. The route handler re-creates it on every request (`mkdir recursive`) — survives someone wiping `storage/` while the server runs.
+- `api/storage/` is gitignored (see `api/.gitignore`).
+- No S3/MinIO yet — the diploma's "ideal" track mentions S3-compatible storage, but for MVP local disk is enough. Swap is localized to `guestService.applyGuestUpload` if needed later.
+- Magic-link tokens are **single-use**: after a successful upload `magic_link_token` is set to NULL. Re-visiting the same URL yields 404.
 
 ### FSM is duplicated
 `src/utils/taskWorkflow.js` (frontend) and `api/src/services/taskWorkflow.js` (backend) hold the same transition map. Keep them in sync. The frontend uses it for optimistic guards (avoid sending obvious-bad transitions); the server is the authority and will reject FSM violations with HTTP 409.
@@ -334,15 +349,16 @@ The diploma defines these FSM states (slightly different naming from code):
 
 - [x] Kanban board with 5 columns and drag-drop
 - [x] Task detail modal (title, description, status, deadline, assignees, files, comments, history)
-- [x] Status change with FSM enforcement
+- [x] Status change with FSM enforcement (server is the authority, 409 on violation)
 - [x] Task tags: Блокирующая / Ключевая / Обычная
 - [x] Task dependency mind map (@xyflow/react)
-- [x] Magic link generation when task → `waiting`
+- [x] Magic link generation when task → `waiting` (real UUID token in DB, 72h TTL)
 - [x] Admin role that unlocks rollback from `done`
 - [x] Settings modal
 - [x] Multi-project task list (tasks tab: all projects, project badge per card, column toggles)
-- [ ] Client guest upload page (magic link target — separate route or modal)
-- [ ] `CLIENT_UPLOADED` status in FSM
+- [x] Client guest upload page — fetches task by token, uploads files via multer, status auto-transitions to `client-uploaded`, token invalidates
+- [x] `client-uploaded` status in FSM
+- [ ] Login + JWT (Iteration 5) — `isAdmin = true` is still hardcoded
 
 ### Ideal/future features (from spec, not yet implemented)
 

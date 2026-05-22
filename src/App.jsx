@@ -24,7 +24,7 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [guestTaskId, setGuestTaskId] = useState(null);
+  const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
   // Подтягиваем задачи с бэка один раз при монтировании.
@@ -146,40 +146,11 @@ export default function App() {
     }
   };
 
-  const handleGuestUpload = (taskId, uploadedFiles, comment) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
-        if (task.id !== taskId) return task;
-        const newFiles = uploadedFiles.map((f, i) => ({
-          id: `${task.id}-gf${i + 1}-${Date.now()}`,
-          name: f.name,
-          size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
-        }));
-        const newComments = comment.trim()
-          ? [
-              ...(task.comments ?? []),
-              {
-                id: `${task.id}-gc-${Date.now()}`,
-                author: 'client',
-                name: 'Клиент',
-                message: comment.trim(),
-                at: new Date().toISOString(),
-              },
-            ]
-          : task.comments ?? [];
-        return {
-          ...task,
-          status: 'client-uploaded',
-          files: [...(task.files ?? []), ...newFiles],
-          comments: newComments,
-          history: [
-            ...(task.history ?? []),
-            { date: new Date().toISOString(), text: `Клиент загрузил материалы (${uploadedFiles.length} файл(ов))` },
-          ],
-        };
-      })
-    );
-    setGuestTaskId(null);
+  // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
+  // Здесь только обновляем локальный кэш задачи свежим DTO.
+  const handleGuestUploaded = (updatedTask) => {
+    replaceTask(updatedTask);
+    setGuestToken(null);
   };
 
   useEffect(() => {
@@ -200,13 +171,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleHotkeys);
   }, [createTask]);
 
-  if (guestTaskId !== null) {
-    const guestTask = tasks.find((t) => t.id === guestTaskId) ?? null;
+  if (guestToken !== null) {
     return (
       <GuestUploadPage
-        task={guestTask}
-        onClose={() => setGuestTaskId(null)}
-        onUploaded={(files, comment) => handleGuestUpload(guestTaskId, files, comment)}
+        token={guestToken}
+        onClose={() => setGuestToken(null)}
+        onUploaded={handleGuestUploaded}
       />
     );
   }
@@ -333,9 +303,20 @@ export default function App() {
         team={team}
         isAdmin={isAdmin}
         onClose={closeTask}
-        onOpenGuestView={(taskId) => {
-          setSelectedTaskId(null);
-          setGuestTaskId(taskId);
+        onOpenGuestView={() => {
+          // Извлекаем magic-токен из URL, который сервер положил в task.magicLink
+          // (формат https://.../task/<id>?token=<uuid>). Если токена нет — кнопка
+          // и так задизейблена в TaskModal, сюда мы не попадём.
+          const link = selectedTask?.magicLink;
+          if (!link) return;
+          try {
+            const token = new URL(link).searchParams.get('token');
+            if (!token) return;
+            setSelectedTaskId(null);
+            setGuestToken(token);
+          } catch {
+            // ignore — некорректный URL
+          }
         }}
         onRequestClient={async () => {
           if (!selectedTask) return null;

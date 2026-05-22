@@ -48,4 +48,25 @@ export const api = {
     json('POST', `/api/tasks/${id}/assignees`, { userId }),
   requestClient: (id) =>
     json('POST', `/api/tasks/${id}/request-client`),
+
+  // guest / magic-link
+  getGuestTask: (token) => request(`/api/guest/${token}`),
+  guestUpload: (token, files, comment) => {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    if (comment) fd.append('comment', comment);
+    // НЕ ставим Content-Type руками — браузер сам выставит boundary.
+    return fetch(`/api/guest/${token}/upload`, { method: 'POST', body: fd })
+      .then(async (res) => {
+        if (!res.ok) {
+          let detail = '';
+          try { detail = (await res.json())?.error ?? ''; } catch { /* ignore */ }
+          const err = new Error(`API ${res.status} ${detail}`.trim());
+          err.status = res.status;
+          err.detail = detail;
+          throw err;
+        }
+        return res.json();
+      });
+  },
 };
