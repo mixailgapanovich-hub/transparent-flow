@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
-import { INITIAL_TASKS } from './data/mockData';
+import LoginScreen from './components/LoginScreen';
+import { api } from './api/client';
 import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
@@ -14,15 +15,69 @@ import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
 
 export default function App() {
-  const isAdmin = true;
+  // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
+  const [currentUser, setCurrentUser] = useState(null);
+  const isAdmin = currentUser?.role === 'admin';
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const [tasks, setTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksError, setTasksError] = useState(null);
+  const [team, setTeam] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [guestTaskId, setGuestTaskId] = useState(null);
+  const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
+
+  // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
+  const [authChecked, setAuthChecked] = useState(false);
+  useEffect(() => {
+    api.me()
+      .then(({ user }) => setCurrentUser(user))
+      .catch(() => setCurrentUser(undefined))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  // 2) Когда юзер появился — грузим задачи и команду. Если разлогинились — чистим state.
+  useEffect(() => {
+    if (!currentUser) {
+      setTasks([]);
+      setTeam([]);
+      setTasksLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setTasksLoading(true);
+    api.listTasks()
+      .then((data) => {
+        if (cancelled) return;
+        setTasks(data);
+        setTasksError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[App] не удалось загрузить задачи:', err);
+        setTasksError(err.message ?? 'Не удалось загрузить задачи');
+      })
+      .finally(() => {
+        if (!cancelled) setTasksLoading(false);
+      });
+    api.listUsers()
+      .then((data) => { if (!cancelled) setTeam(data); })
+      .catch((err) => console.error('[App] не удалось загрузить команду:', err));
+    return () => { cancelled = true; };
+  }, [currentUser]);
+
+  const handleLogout = async () => {
+    try { await api.logout(); } catch { /* ignore — лучше всё равно выкинем */ }
+    setCurrentUser(undefined);
+  };
+
+  // Заменяет одну задачу в локальном state на свежий DTO с сервера.
+  const replaceTask = useCallback((updatedTask) => {
+    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+  }, []);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
@@ -34,150 +89,86 @@ export default function App() {
     setSelectedTaskId(null);
   };
 
-  const createTask = useCallback(() => {
-    const nextId = String(Math.max(...tasks.map((task) => Number(task.id)), 0) + 1);
-    const newTask = {
-      id: nextId,
-      projectId: 'proj-eco',
-      title: 'Новая задача',
-      status: 'backlog',
-      tag: 'Обычная',
-      deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      description: '',
-      hasFiles: false,
-      history: [{ date: new Date().toISOString(), text: 'Задача создана вручную' }],
-      dependsOn: [],
-      files: [],
-      comments: [],
-      assignees: [{ id: 'pm-1', name: 'Adena Admin', initials: 'AA' }],
-      magicLink: '',
-      isImportant: false,
-    };
-    setTasks((prev) => [newTask, ...prev]);
-    setSelectedTaskId(nextId);
-  }, [tasks]);
+  const createTask = useCallback(async () => {
+    try {
+      const created = await api.createTask({
+        projectSlug: 'proj-eco',
+        title: 'Новая задача',
+        description: '',
+        tag: 'Обычная',
+        deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+      setTasks((prev) => [created, ...prev]);
+      setSelectedTaskId(created.id);
+    } catch (err) {
+      window.alert('Не удалось создать задачу: ' + (err.detail || err.message));
+    }
+  }, []);
 
-  const updateTask = (taskId, patch) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
-        if (task.id !== taskId) return task;
-        return {
-          ...task,
-          ...patch,
-          history: [
-            ...(task.history ?? []),
-            {
-              date: new Date().toISOString(),
-              text: 'Обновлено из модального окна',
-            },
-          ],
-        };
-      })
-    );
+  const updateTask = async (taskId, patch) => {
+    try {
+      const updated = await api.updateTask(taskId, patch);
+      replaceTask(updated);
+    } catch (err) {
+      window.alert('Не удалось сохранить: ' + (err.detail || err.message));
+    }
   };
 
-  const updateTaskStatus = (taskId, nextStatus) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
-        if (task.id !== taskId) return task;
-        if (!canTransitionStatus(task.status, nextStatus, { isAdmin })) return task;
-        return {
-          ...task,
-          status: nextStatus,
-          history: [
-            ...(task.history ?? []),
-            { date: new Date().toISOString(), text: `Статус изменён: ${nextStatus}` },
-          ],
-        };
-      })
+  const updateTaskStatus = async (taskId, nextStatus) => {
+    const before = tasks.find((t) => t.id === taskId);
+    if (!before || before.status === nextStatus) return;
+    if (!canTransitionStatus(before.status, nextStatus, { isAdmin })) return;
+
+    // Оптимистично обновляем UI, чтобы drag-and-drop ощущался мгновенным.
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus } : t)),
     );
+    try {
+      const updated = await api.transitionTask(taskId, nextStatus, { isAdmin });
+      replaceTask(updated);
+    } catch (err) {
+      // Откатываем при ошибке (например, сервер вернул FSM violation).
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? before : t)));
+      window.alert('Не удалось сменить статус: ' + (err.detail || err.message));
+    }
   };
 
-  const appendTaskComment = (taskId, message) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
-        if (task.id !== taskId) return task;
-        return {
-          ...task,
-          comments: [
-            ...(task.comments ?? []),
-            {
-              id: `${task.id}-c${(task.comments ?? []).length + 1}`,
-              author: 'pm',
-              name: 'PM',
-              message,
-              at: new Date().toISOString(),
-            },
-          ],
-        };
-      })
-    );
+  const appendTaskComment = async (taskId, message) => {
+    try {
+      const updated = await api.addComment(taskId, {
+        message,
+        authorType: 'pm',
+        authorName: 'PM',
+      });
+      replaceTask(updated);
+    } catch (err) {
+      window.alert('Не удалось отправить комментарий: ' + (err.detail || err.message));
+    }
   };
 
-  const addTaskAssignee = (taskId, assignee) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
-        if (task.id !== taskId) return task;
-        const exists = (task.assignees ?? []).some((item) => item.id === assignee.id);
-        if (exists) return task;
-        return { ...task, assignees: [...(task.assignees ?? []), assignee] };
-      })
-    );
+  const addTaskAssignee = async (taskId, assignee) => {
+    try {
+      const updated = await api.addAssignee(taskId, assignee.id);
+      replaceTask(updated);
+    } catch (err) {
+      window.alert('Не удалось назначить исполнителя: ' + (err.detail || err.message));
+    }
   };
 
   const requestClientUpdate = async (taskId) => {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
-        if (task.id !== taskId) return task;
-        const magicLink = `https://client.transparent-flow.app/task/${task.id}?token=${crypto.randomUUID()}`;
-        return {
-          ...task,
-          status: 'waiting',
-          magicLink,
-          history: [
-            ...(task.history ?? []),
-            { date: new Date().toISOString(), text: 'Запрос отправлен клиенту' },
-          ],
-        };
-      })
-    );
+    try {
+      const updated = await api.requestClient(taskId);
+      replaceTask(updated);
+    } catch (err) {
+      window.alert('Не удалось запросить материалы: ' + (err.detail || err.message));
+    }
   };
 
-  const handleGuestUpload = (taskId, uploadedFiles, comment) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => {
-        if (task.id !== taskId) return task;
-        const newFiles = uploadedFiles.map((f, i) => ({
-          id: `${task.id}-gf${i + 1}-${Date.now()}`,
-          name: f.name,
-          size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
-        }));
-        const newComments = comment.trim()
-          ? [
-              ...(task.comments ?? []),
-              {
-                id: `${task.id}-gc-${Date.now()}`,
-                author: 'client',
-                name: 'Клиент',
-                message: comment.trim(),
-                at: new Date().toISOString(),
-              },
-            ]
-          : task.comments ?? [];
-        return {
-          ...task,
-          status: 'client-uploaded',
-          files: [...(task.files ?? []), ...newFiles],
-          comments: newComments,
-          history: [
-            ...(task.history ?? []),
-            { date: new Date().toISOString(), text: `Клиент загрузил материалы (${uploadedFiles.length} файл(ов))` },
-          ],
-        };
-      })
-    );
-    setGuestTaskId(null);
+  // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
+  // Здесь только обновляем локальный кэш задачи свежим DTO.
+  const handleGuestUploaded = (updatedTask) => {
+    replaceTask(updatedTask);
+    setGuestToken(null);
   };
 
   useEffect(() => {
@@ -198,15 +189,29 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleHotkeys);
   }, [createTask]);
 
-  if (guestTaskId !== null) {
-    const guestTask = tasks.find((t) => t.id === guestTaskId) ?? null;
+  // Гостевая страница доступна без логина — она по magic-токену.
+  if (guestToken !== null) {
     return (
       <GuestUploadPage
-        task={guestTask}
-        onClose={() => setGuestTaskId(null)}
-        onUploaded={(files, comment) => handleGuestUpload(guestTaskId, files, comment)}
+        token={guestToken}
+        onClose={() => setGuestToken(null)}
+        onUploaded={handleGuestUploaded}
       />
     );
+  }
+
+  // Пока не выяснили, есть ли активная сессия — короткий блокирующий заглушка.
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen w-screen flex items-center justify-center bg-[#F8FAFC] text-slate-400 font-montserrat text-sm">
+        Проверяем сессию…
+      </div>
+    );
+  }
+
+  // Не залогинен — отдаём экран входа.
+  if (!currentUser) {
+    return <LoginScreen onSuccess={setCurrentUser} />;
   }
 
   return (
@@ -248,12 +253,21 @@ export default function App() {
 
             <div className="flex items-center gap-3 pl-6 border-l border-slate-100">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-black text-slate-800 leading-none">Adena Admin</p>
-                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">Producer</p>
+                <p className="text-sm font-black text-slate-800 leading-none">{currentUser.name}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">
+                  {currentUser.role === 'admin' ? 'Admin' : 'Producer'}
+                </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-[#FFD700] flex items-center justify-center font-black text-[#3C50B4] shadow-md shadow-yellow-100 border-2 border-white">
-                AA
+                {currentUser.name?.split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?'}
               </div>
+              <button
+                onClick={handleLogout}
+                title="Выйти"
+                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+              >
+                <LogOut size={18} />
+              </button>
             </div>
           </div>
         </header>
@@ -269,10 +283,23 @@ export default function App() {
               
               {/* Внутренний скролл только для доски */}
               <div className="flex-1 overflow-x-auto p-8 custom-scrollbar">
-  {activeTab === 'dashboard' ? (
+  {(activeTab === 'dashboard' || activeTab === 'tasks') && tasksLoading ? (
+    <div className="flex items-center justify-center h-full text-slate-400 font-machine text-sm">
+      Загружаем задачи...
+    </div>
+  ) : (activeTab === 'dashboard' || activeTab === 'tasks') && tasksError ? (
+    <div className="flex flex-col items-center justify-center h-full text-red-500 text-sm gap-3">
+      <div className="font-machine text-base">Ошибка загрузки</div>
+      <div className="text-slate-500">{tasksError}</div>
+      <div className="text-[10px] text-slate-400 uppercase tracking-widest">
+        Проверьте, что API запущен: <code>cd api && npm run dev</code>
+      </div>
+    </div>
+  ) : activeTab === 'dashboard' ? (
     <KanbanBoard
       tasks={tasks.filter(t => !t.projectId || t.projectId === 'proj-eco')}
       setTasks={setTasks}
+      onChangeStatus={updateTaskStatus}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
@@ -283,6 +310,7 @@ export default function App() {
     <KanbanBoard
       tasks={projectFilter ? tasks.filter(t => t.projectId === projectFilter) : tasks}
       setTasks={setTasks}
+      onChangeStatus={updateTaskStatus}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
@@ -314,11 +342,23 @@ export default function App() {
       <TaskModal
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
+        team={team}
         isAdmin={isAdmin}
         onClose={closeTask}
-        onOpenGuestView={(taskId) => {
-          setSelectedTaskId(null);
-          setGuestTaskId(taskId);
+        onOpenGuestView={() => {
+          // Извлекаем magic-токен из URL, который сервер положил в task.magicLink
+          // (формат https://.../task/<id>?token=<uuid>). Если токена нет — кнопка
+          // и так задизейблена в TaskModal, сюда мы не попадём.
+          const link = selectedTask?.magicLink;
+          if (!link) return;
+          try {
+            const token = new URL(link).searchParams.get('token');
+            if (!token) return;
+            setSelectedTaskId(null);
+            setGuestToken(token);
+          } catch {
+            // ignore — некорректный URL
+          }
         }}
         onRequestClient={async () => {
           if (!selectedTask) return null;
@@ -333,15 +373,20 @@ export default function App() {
           if (!selectedTask) return;
           addTaskAssignee(selectedTask.id, assignee);
         }}
-        onSave={(patch) => {
+        onSave={async (patch) => {
           if (!selectedTask) {
             window.alert('Не удалось сохранить: задача не найдена.');
             return;
           }
+          // Сначала статус (если меняется) — отдельный эндпоинт с FSM-проверкой,
+          // потом поля. Если статус упал — поля не трогаем.
           if (patch.status && patch.status !== selectedTask.status) {
-            updateTaskStatus(selectedTask.id, patch.status);
+            await updateTaskStatus(selectedTask.id, patch.status);
           }
-          updateTask(selectedTask.id, patch);
+          const { status, ...fieldsPatch } = patch;
+          if (Object.keys(fieldsPatch).length > 0) {
+            await updateTask(selectedTask.id, fieldsPatch);
+          }
           closeTask();
         }}
       />
