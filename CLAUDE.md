@@ -6,7 +6,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 **"Прозрачный поток"** (Transparent Flow) — Kanban demo for a digital agency task management system. Built as a diploma thesis prototype for **АденаДиджитал**, a digital agency that manages creative/web projects for clients.
 
-**Scope:** React frontend + Express/PostgreSQL backend, in active iterative buildout. As of Iteration 4 the full PM ↔ client loop works on the server: drag-and-drop, edit, comments, assignees, create-task, "request client content" with a real magic-link token, and the guest upload page (files saved to disk, status auto-transitions to `client-uploaded`, token invalidated). Outstanding: login + role enforcement (Iteration 5).
+**Scope:** React frontend + Express/PostgreSQL backend. MVP is feature-complete after Iteration 5: bcrypt + JWT login (httpOnly cookie), `requireAuth` guarding every PM-side route, role-based FSM overrides (admin can roll back `done`, regular PM cannot — enforced server-side), plus everything from earlier iterations (kanban with drag-drop persisted to DB, comments, assignees, create-task, request-client with real magic-link token, guest upload page with file storage on disk).
 
 **Business problem it solves:** Agency teams lose track of client tasks across email chains. This dashboard gives PMs a central board; clients get a read-only "magic link" to see their task status and upload materials without needing an account.
 
@@ -61,6 +61,9 @@ Tailwind v4 uses `@tailwindcss/postcss` — no `tailwind.config.js`. Classes are
 | PostgreSQL | 16 (alpine) | Database, run via Docker |
 | pg | 8 | Postgres client (`pg.Pool`) |
 | multer | 2 | Multipart file uploads (guest upload page) |
+| bcrypt | 5 | Password hashing (cost=10) |
+| jsonwebtoken | 9 | JWT sign/verify (HS256) |
+| cookie-parser | 1 | Reads `tflow_session` httpOnly cookie into `req.cookies` |
 | cors / morgan / dotenv | — | Standard middleware |
 
 No ORM — plain SQL via parameterized `pool.query()`. No NestJS, Redis, BullMQ, or S3 (those are in the diploma's "ideal" track but not in MVP; see `docs/database.sql` and the PDF spec).
@@ -180,12 +183,16 @@ api/
     ├── server.js                    # Express app, mounts routers, /api/health
     ├── db/
     │   └── pool.js                  # pg.Pool + withTransaction(fn) helper
+    ├── middleware/
+    │   └── auth.js                  # attachUser (reads cookie → req.user) + requireAuth (401 guard)
     ├── routes/
+    │   ├── auth.js                  # POST /login, POST /logout, GET /me
     │   ├── projects.js              # GET /api/projects
     │   ├── tasks.js                 # GET/POST/PATCH/DELETE /api/tasks + mutation sub-routes
     │   ├── users.js                 # GET /api/users
     │   └── guest.js                 # GET /api/guest/:token, POST upload (multer + filters)
     └── services/
+        ├── authService.js           # login(), signToken/verifyToken, AUTH_COOKIE + COOKIE_OPTIONS
         ├── projectService.js        # listProjects() — computes tasksDone/progress from DB
         ├── taskService.js           # listTasks, getTaskById, all mutation helpers, exports HttpError
         ├── taskWorkflow.js          # FSM, mirror of frontend taskWorkflow.js
@@ -202,23 +209,28 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 
 ## Backend Notes
 
-### API surface (Iteration 4)
-| Method | Path | Body | Returns |
-|--------|------|------|---------|
-| GET | `/api/health` | — | `{ok, db, service, time}` |
-| GET | `/api/users` | — | User[] (id, name, email, role, initials) |
-| GET | `/api/projects` | — | Project[] with computed `tasksTotal`, `tasksDone`, `progress` |
-| GET | `/api/tasks?projectSlug=` | — | Task[] in frontend-DTO shape |
-| GET | `/api/tasks/:id` | — | Single Task, 404 if missing |
-| POST | `/api/tasks` | `{projectSlug, title, description?, tag?, deadline?, assigneeIds?}` | Created Task (201) |
-| PATCH | `/api/tasks/:id` | partial of `{title, description, tag, deadline}` | Updated Task |
-| DELETE | `/api/tasks/:id` | — | 204 |
-| POST | `/api/tasks/:id/transition` | `{toStatus, isAdmin?}` | Updated Task. **FSM-validated server-side**; 409 on violation |
-| POST | `/api/tasks/:id/comments` | `{message, authorType?, authorName?}` | Updated Task |
-| POST | `/api/tasks/:id/assignees` | `{userId}` (UUID) | Updated Task |
-| POST | `/api/tasks/:id/request-client` | — | Updated Task with new `magicLink`, status=waiting, 72h TTL |
-| GET | `/api/guest/:token` | — | Mini DTO `{taskId, title, description, deadline, projectName, expiresAt}`. 404 if token unknown, 410 if expired or task no longer in `waiting` |
-| POST | `/api/guest/:token/upload` | `multipart/form-data` with `files[]` and optional `comment` | Updated full Task. Status → `client-uploaded`, token invalidated, files written to `api/storage/<task_id>/`, audit event `client_upload` |
+### API surface (Iteration 5)
+**Auth** — every PM-side route below requires the `tflow_session` cookie (set by `/api/auth/login`). 401 if missing/invalid. The `/api/guest/*` and `/api/health` routes are public.
+
+| Method | Path | Auth | Body | Returns |
+|--------|------|------|------|---------|
+| GET  | `/api/health` | — | — | `{ok, db, service, time}` |
+| POST | `/api/auth/login` | — | `{email, password}` | `{user}` + sets httpOnly cookie. 401 on bad creds. |
+| POST | `/api/auth/logout` | — | — | `{ok: true}`, clears cookie |
+| GET  | `/api/auth/me` | cookie | — | `{user}` if logged in, 401 otherwise |
+| GET  | `/api/users` | ✅ | — | User[] (id, name, email, role, initials) |
+| GET  | `/api/projects` | ✅ | — | Project[] with computed `tasksTotal`, `tasksDone`, `progress` |
+| GET  | `/api/tasks?projectSlug=` | ✅ | — | Task[] in frontend-DTO shape |
+| GET  | `/api/tasks/:id` | ✅ | — | Single Task, 404 if missing |
+| POST | `/api/tasks` | ✅ | `{projectSlug, title, description?, tag?, deadline?, assigneeIds?}` | Created Task (201) |
+| PATCH | `/api/tasks/:id` | ✅ | partial of `{title, description, tag, deadline}` | Updated Task |
+| DELETE | `/api/tasks/:id` | ✅ | — | 204 |
+| POST | `/api/tasks/:id/transition` | ✅ | `{toStatus}` | Updated Task. FSM-validated; **`isAdmin` is derived from `req.user.role` only — body is ignored**, otherwise any PM could send `isAdmin:true`. 409 on violation. |
+| POST | `/api/tasks/:id/comments` | ✅ | `{message, authorType?, authorName?}` | Updated Task |
+| POST | `/api/tasks/:id/assignees` | ✅ | `{userId}` (UUID) | Updated Task |
+| POST | `/api/tasks/:id/request-client` | ✅ | — | Updated Task with new `magicLink`, status=waiting, 72h TTL |
+| GET  | `/api/guest/:token` | — | — | Mini DTO `{taskId, title, description, deadline, projectName, expiresAt}`. 404 if token unknown, 410 if expired or task no longer in `waiting` |
+| POST | `/api/guest/:token/upload` | — | `multipart/form-data` with `files[]` and optional `comment` | Updated full Task. Status → `client-uploaded`, token invalidated, files written to `api/storage/<task_id>/`, audit event `client_upload` |
 
 All mutations:
 - Write to `task_events` (event_type=`history` for human-readable feed; `status_change`, `magic_link_issued` for structured audit).
@@ -242,6 +254,19 @@ All mutations:
 - `task.projectId` is the project **slug** (`'proj-eco'`), not the project UUID. The dashboard's project filter compares against this slug.
 - `App.jsx::createTask` calls `POST /api/tasks` (no local UUIDs).
 - `App.jsx` keeps `team` state populated from `GET /api/users` and passes it to `TaskModal` as a prop, replacing the old hardcoded `TEAM_OPTIONS`.
+
+### Auth flow
+- Login: `POST /api/auth/login` → `bcrypt.compare` against `users.password_hash` → on success the server signs a JWT (`{sub: user.id, role: user.role}`, HS256, TTL 24h) and sets it as httpOnly cookie `tflow_session`.
+- Every request to `/api` runs `attachUser` middleware: if a valid cookie is present, `req.user` gets the full user row; otherwise the middleware just continues silently.
+- `requireAuth` is mounted on `/api/projects`, `/api/tasks`, `/api/users` — these return 401 if `req.user` is missing. Public routes: `/api/health`, `/api/auth/login`, `/api/auth/logout`, `/api/guest/*`. `/api/auth/me` is mounted under the public auth router but returns 401 itself when not logged in.
+- The frontend `api/client.js` sends every request with `credentials: 'include'` so the cookie is attached cross-port (Vite dev :5173 → Express :3001 via proxy). CORS is configured with `credentials: true`.
+- **Role enforcement is server-side only.** The `/tasks/:id/transition` route derives `isAdmin` from `req.user.role === 'admin'` and discards anything in the body — otherwise any PM could send `isAdmin: true` and roll back `done`. The frontend FSM check (`canTransitionStatus(..., {isAdmin})`) uses `currentUser.role === 'admin'` purely for UX (hiding obviously-bad targets); it is not a security boundary.
+- Logout (`POST /api/auth/logout`) just calls `res.clearCookie`. The JWT itself is stateless so old tokens technically remain valid until expiry — fine for the diploma, would need a blocklist in production.
+- Default demo accounts (set by `npm run db:seed`):
+  - `admin@adena.local` / `admin123` (role `admin`)
+  - `pm@adena.local` / `pm123` (role `pm`)
+  - `mentor@adena.local` / `mentor123` (role `pm`)
+- Secrets live in `api/.env` (`JWT_SECRET`, `JWT_TTL`). The example file has placeholder values; for production replace with something long and random.
 
 ### File storage (guest uploads)
 - Files go to `api/storage/<task_id>/<uuid>.<ext>` on local disk. The original filename is kept in `task_files.filename`; on disk we only store a UUID to defuse path-traversal and filename collisions.
@@ -358,7 +383,7 @@ The diploma defines these FSM states (slightly different naming from code):
 - [x] Multi-project task list (tasks tab: all projects, project badge per card, column toggles)
 - [x] Client guest upload page — fetches task by token, uploads files via multer, status auto-transitions to `client-uploaded`, token invalidates
 - [x] `client-uploaded` status in FSM
-- [ ] Login + JWT (Iteration 5) — `isAdmin = true` is still hardcoded
+- [x] Login + JWT — bcrypt hashes in DB, httpOnly cookie, `requireAuth` middleware, role enforced server-side
 
 ### Ideal/future features (from spec, not yet implemented)
 

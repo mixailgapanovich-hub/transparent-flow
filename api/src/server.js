@@ -2,11 +2,14 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
 import { pool } from './db/pool.js';
 import projectsRouter from './routes/projects.js';
 import tasksRouter from './routes/tasks.js';
 import usersRouter from './routes/users.js';
 import guestRouter from './routes/guest.js';
+import authRouter from './routes/auth.js';
+import { attachUser, requireAuth } from './middleware/auth.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -14,7 +17,13 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 app.use(morgan('dev'));
+
+// На все /api/* пытаемся достать юзера из cookie — но 401 здесь не швыряем,
+// это делают точечные requireAuth ниже. Публичные роуты (health, login, guest)
+// просто работают без req.user.
+app.use('/api', attachUser);
 
 app.get('/api/health', async (_req, res) => {
   let db = false;
@@ -32,10 +41,14 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
-app.use('/api/projects', projectsRouter);
-app.use('/api/tasks', tasksRouter);
-app.use('/api/users', usersRouter);
-app.use('/api/guest', guestRouter);
+// Публичные:
+app.use('/api/auth', authRouter);     // login сам по себе публичный, /me опирается на attachUser
+app.use('/api/guest', guestRouter);   // клиенту авторизация не нужна — он по magic-токену
+
+// Закрытые (требуют сессии PM-а):
+app.use('/api/projects', requireAuth, projectsRouter);
+app.use('/api/tasks',    requireAuth, tasksRouter);
+app.use('/api/users',    requireAuth, usersRouter);
 
 // 404 fallback
 app.use((req, res) => {

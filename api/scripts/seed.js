@@ -7,6 +7,7 @@
 
 import 'dotenv/config';
 import { createHash } from 'node:crypto';
+import bcrypt from 'bcrypt';
 import { pool, withTransaction } from '../src/db/pool.js';
 import { INITIAL_TASKS } from '../../src/data/mockData.js';
 import { MOCK_PROJECTS } from '../../src/data/mockProjects.js';
@@ -25,10 +26,11 @@ function uuidFrom(kind, key) {
     .join('')}-${h.slice(16, 20).join('')}-${h.slice(20, 32).join('')}`;
 }
 
+// Демо-пароли. В реальном проекте — переменные окружения, тут — для удобства показа.
 const TEAM = [
-  { key: 'pm-1', name: 'Adena Admin', email: 'admin@adena.local', role: 'admin' },
-  { key: 'pm-2', name: 'Nika PM', email: 'pm@adena.local', role: 'pm' },
-  { key: 'mentor-1', name: 'Ilya Mentor', email: 'mentor@adena.local', role: 'pm' },
+  { key: 'pm-1', name: 'Adena Admin', email: 'admin@adena.local', role: 'admin', password: 'admin123' },
+  { key: 'pm-2', name: 'Nika PM', email: 'pm@adena.local', role: 'pm', password: 'pm123' },
+  { key: 'mentor-1', name: 'Ilya Mentor', email: 'mentor@adena.local', role: 'pm', password: 'mentor123' },
 ];
 
 async function seed() {
@@ -41,12 +43,13 @@ async function seed() {
       tasks, projects, clients, users
       RESTART IDENTITY CASCADE`);
 
-    // 1) Пользователи (команда)
+    // 1) Пользователи (команда) — пароли хэшируем bcrypt-ом (cost=10)
     for (const t of TEAM) {
+      const hash = await bcrypt.hash(t.password, 10);
       await c.query(
         `INSERT INTO users (id, name, email, role, password_hash)
          VALUES ($1, $2, $3, $4, $5)`,
-        [uuidFrom('user', t.key), t.name, t.email, t.role, 'TODO_bcrypt_in_iteration_5'],
+        [uuidFrom('user', t.key), t.name, t.email, t.role, hash],
       );
     }
     console.log(`[seed] users: ${TEAM.length}`);

@@ -3,6 +3,8 @@
 
 async function request(path, options = {}) {
   const res = await fetch(path, {
+    // credentials: 'include' — обязательно, чтобы браузер отправлял httpOnly cookie с JWT.
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
     ...options,
   });
@@ -24,6 +26,11 @@ const json = (method, path, body) =>
   request(path, { method, body: body !== undefined ? JSON.stringify(body) : undefined });
 
 export const api = {
+  // auth
+  login: (email, password) => json('POST', '/api/auth/login', { email, password }),
+  logout: () => json('POST', '/api/auth/logout'),
+  me: () => request('/api/auth/me'),
+
   // health & lookups
   health: () => request('/api/health'),
   listUsers: () => request('/api/users'),
@@ -56,7 +63,7 @@ export const api = {
     for (const f of files) fd.append('files', f);
     if (comment) fd.append('comment', comment);
     // НЕ ставим Content-Type руками — браузер сам выставит boundary.
-    return fetch(`/api/guest/${token}/upload`, { method: 'POST', body: fd })
+    return fetch(`/api/guest/${token}/upload`, { method: 'POST', body: fd, credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) {
           let detail = '';

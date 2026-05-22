@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
+import LoginScreen from './components/LoginScreen';
 import { api } from './api/client';
 import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
 import { canTransitionStatus } from './utils/taskWorkflow';
@@ -14,7 +15,9 @@ import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
 
 export default function App() {
-  const isAdmin = true;
+  // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
+  const [currentUser, setCurrentUser] = useState(null);
+  const isAdmin = currentUser?.role === 'admin';
   const [activeTab, setActiveTab] = useState('dashboard');
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
@@ -27,9 +30,23 @@ export default function App() {
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
-  // Подтягиваем задачи с бэка один раз при монтировании.
-  // Мутации пока локальные (Итерация 2: read-only API).
+  // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
+  const [authChecked, setAuthChecked] = useState(false);
   useEffect(() => {
+    api.me()
+      .then(({ user }) => setCurrentUser(user))
+      .catch(() => setCurrentUser(undefined))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  // 2) Когда юзер появился — грузим задачи и команду. Если разлогинились — чистим state.
+  useEffect(() => {
+    if (!currentUser) {
+      setTasks([]);
+      setTeam([]);
+      setTasksLoading(false);
+      return;
+    }
     let cancelled = false;
     setTasksLoading(true);
     api.listTasks()
@@ -46,15 +63,16 @@ export default function App() {
       .finally(() => {
         if (!cancelled) setTasksLoading(false);
       });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Команда — для выпадашки «назначить исполнителя» в TaskModal.
-  useEffect(() => {
     api.listUsers()
-      .then(setTeam)
+      .then((data) => { if (!cancelled) setTeam(data); })
       .catch((err) => console.error('[App] не удалось загрузить команду:', err));
-  }, []);
+    return () => { cancelled = true; };
+  }, [currentUser]);
+
+  const handleLogout = async () => {
+    try { await api.logout(); } catch { /* ignore — лучше всё равно выкинем */ }
+    setCurrentUser(undefined);
+  };
 
   // Заменяет одну задачу в локальном state на свежий DTO с сервера.
   const replaceTask = useCallback((updatedTask) => {
@@ -171,6 +189,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleHotkeys);
   }, [createTask]);
 
+  // Гостевая страница доступна без логина — она по magic-токену.
   if (guestToken !== null) {
     return (
       <GuestUploadPage
@@ -179,6 +198,20 @@ export default function App() {
         onUploaded={handleGuestUploaded}
       />
     );
+  }
+
+  // Пока не выяснили, есть ли активная сессия — короткий блокирующий заглушка.
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen w-screen flex items-center justify-center bg-[#F8FAFC] text-slate-400 font-montserrat text-sm">
+        Проверяем сессию…
+      </div>
+    );
+  }
+
+  // Не залогинен — отдаём экран входа.
+  if (!currentUser) {
+    return <LoginScreen onSuccess={setCurrentUser} />;
   }
 
   return (
@@ -220,12 +253,21 @@ export default function App() {
 
             <div className="flex items-center gap-3 pl-6 border-l border-slate-100">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-black text-slate-800 leading-none">Adena Admin</p>
-                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">Producer</p>
+                <p className="text-sm font-black text-slate-800 leading-none">{currentUser.name}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">
+                  {currentUser.role === 'admin' ? 'Admin' : 'Producer'}
+                </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-[#FFD700] flex items-center justify-center font-black text-[#3C50B4] shadow-md shadow-yellow-100 border-2 border-white">
-                AA
+                {currentUser.name?.split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?'}
               </div>
+              <button
+                onClick={handleLogout}
+                title="Выйти"
+                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+              >
+                <LogOut size={18} />
+              </button>
             </div>
           </div>
         </header>

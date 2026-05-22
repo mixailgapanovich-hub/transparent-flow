@@ -49,11 +49,14 @@ router.delete('/:id', wrap(async (req, res) => {
   res.status(204).end();
 }));
 
-// Смена статуса с проверкой FSM
+// Смена статуса с проверкой FSM.
+// isAdmin берём ИСКЛЮЧИТЕЛЬНО из req.user.role — тело запроса игнорируется,
+// иначе любой PM мог бы написать isAdmin:true и откатывать done.
 router.post('/:id/transition', wrap(async (req, res) => {
-  const { toStatus, isAdmin } = req.body ?? {};
+  const { toStatus } = req.body ?? {};
   if (!toStatus) throw new HttpError(400, 'toStatus required');
-  res.json(await transitionStatus(req.params.id, toStatus, { isAdmin: Boolean(isAdmin) }));
+  const isAdmin = req.user?.role === 'admin';
+  res.json(await transitionStatus(req.params.id, toStatus, { isAdmin, actorId: req.user?.id }));
 }));
 
 // Добавить комментарий
