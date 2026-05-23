@@ -9,7 +9,19 @@ import tasksRouter from './routes/tasks.js';
 import usersRouter from './routes/users.js';
 import guestRouter from './routes/guest.js';
 import authRouter from './routes/auth.js';
+import telegramRouter, { handleUpdate as handleTelegramUpdate } from './routes/telegram.js';
+import adminRouter from './routes/admin.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
+import {
+  initTelegram,
+  setWebhook,
+  startPolling,
+  onUpdate,
+  telegramState,
+} from './services/channels/telegram.js';
+import { initEmail, emailState } from './services/channels/email.js';
+import { startScheduler } from './scheduler.js';
+import { schedulerState } from './services/notificationService.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -20,11 +32,9 @@ app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 
-// На все /api/* пытаемся достать юзера из cookie — но 401 здесь не швыряем,
-// это делают точечные requireAuth ниже. Публичные роуты (health, login, guest)
-// просто работают без req.user.
 app.use('/api', attachUser);
 
+// Расширенный health: одним GET-ом видно состояние БД, планировщика и каналов.
 app.get('/api/health', async (_req, res) => {
   let db = false;
   try {
@@ -38,24 +48,46 @@ app.get('/api/health', async (_req, res) => {
     db,
     service: 'transparent-flow-api',
     time: new Date().toISOString(),
+    scheduler: {
+      running: schedulerState.running,
+      lastTickAt: schedulerState.lastTickAt,
+      lastTickDurationMs: schedulerState.lastTickDurationMs,
+      lastTickError: schedulerState.lastTickError,
+      lastTickSummary: schedulerState.lastTickSummary,
+    },
+    channels: {
+      telegram: {
+        configured: telegramState.configured,
+        mode: telegramState.mode,
+        botUsername: telegramState.botUsername,
+        lastSendAt: telegramState.lastSendAt,
+        lastError: telegramState.lastError,
+      },
+      email: {
+        configured: emailState.configured,
+        provider: emailState.provider,
+        lastSendAt: emailState.lastSendAt,
+        lastError: emailState.lastError,
+      },
+    },
   });
 });
 
 // Публичные:
-app.use('/api/auth', authRouter);     // login сам по себе публичный, /me опирается на attachUser
-app.use('/api/guest', guestRouter);   // клиенту авторизация не нужна — он по magic-токену
+app.use('/api/auth', authRouter);
+app.use('/api/guest', guestRouter);
+app.use('/api/telegram', telegramRouter); // webhook от Telegram-серверов
 
-// Закрытые (требуют сессии PM-а):
+// Закрытые:
 app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/tasks',    requireAuth, tasksRouter);
 app.use('/api/users',    requireAuth, usersRouter);
+app.use('/api/admin',    requireAuth, adminRouter); // role=admin проверяется внутри роута
 
-// 404 fallback
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found', path: req.path });
 });
 
-// error handler — пробрасывает HttpError со своим status, всё остальное → 500
 app.use((err, _req, res, _next) => {
   if (err && typeof err.status === 'number') {
     return res.status(err.status).json({ error: err.message });
@@ -64,7 +96,38 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-app.listen(PORT, () => {
+/** Стартовая sanity-проверка: ворнинги о кривом конфиге, без падения. */
+function sanityCheckEnv() {
+  if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_USERNAME) {
+    console.warn('[startup] TELEGRAM_BOT_TOKEN задан, но TELEGRAM_BOT_USERNAME пуст — deep-link не сработает');
+  }
+  if (process.env.SMTP_HOST && !process.env.EMAIL_FROM && !process.env.SMTP_USER) {
+    console.warn('[startup] SMTP_HOST задан, но EMAIL_FROM/SMTP_USER пусты — письма не отправятся');
+  }
+}
+
+app.listen(PORT, async () => {
   console.log(`[api] listening on http://localhost:${PORT}`);
   console.log(`[api] cors origin: ${CORS_ORIGIN}`);
+
+  sanityCheckEnv();
+
+  // Каналы инициализируем параллельно — каждый сам логирует свой статус.
+  await Promise.all([initTelegram(), initEmail()]);
+
+  // Регистрируем общий обработчик апдейтов (используется и webhook, и polling)
+  onUpdate(handleTelegramUpdate);
+
+  // Выбор режима: webhook если задан публичный URL, иначе polling.
+  if (telegramState.configured) {
+    if (process.env.TELEGRAM_WEBHOOK_URL) {
+      const secret = process.env.TELEGRAM_WEBHOOK_SECRET || 'dev-webhook-secret';
+      const url = `${process.env.TELEGRAM_WEBHOOK_URL.replace(/\/$/, '')}/api/telegram/webhook/${secret}`;
+      setWebhook(url).catch((err) => console.error('[telegram] setWebhook failed:', err.message));
+    } else {
+      startPolling().catch((err) => console.error('[telegram] startPolling failed:', err.message));
+    }
+  }
+
+  startScheduler();
 });

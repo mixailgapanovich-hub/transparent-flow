@@ -50,7 +50,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], onClose, onSave, onRequestClient, onSendComment, onAddAssignee, onOpenGuestView, isAdmin = false }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -233,8 +233,15 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
                 )}
               </div>
               {draft.status === 'client-uploaded' && (
-                <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700">
-                  Клиент загрузил материалы — можно ответить или продолжить работу.
+                <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-3 text-xs font-semibold text-teal-700">
+                  <p>Клиент загрузил материалы. Проверьте их и зафиксируйте приём.</p>
+                  <button
+                    type="button"
+                    onClick={() => onAcceptContent?.()}
+                    className="mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700"
+                  >
+                    Принять контент (отправить акт клиенту)
+                  </button>
                 </div>
               )}
               <div className="mt-3 flex items-center gap-2">
@@ -430,6 +437,45 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
                 </div>
               </div>
             ) : null}
+
+            {/* Telegram-привязка клиента — показываем только если бот настроен */}
+            {botUsername && task.clientId && (
+              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
+                {task.clientTelegramLinked ? (
+                  <p className="text-xs font-semibold text-sky-700">
+                    ✓ Telegram-чат клиента привязан. Уведомления уйдут туда автоматически.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold text-sky-700">
+                      Telegram клиента не привязан
+                    </p>
+                    <p className="mt-1 text-[11px] text-sky-600">
+                      Отправьте клиенту эту ссылку, чтобы он подключил бота:
+                    </p>
+                    <p className="mt-1 break-all rounded bg-white px-2 py-1 text-xs text-slate-700">
+                      {`https://t.me/${botUsername}?start=${task.clientId}`}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const link = `https://t.me/${botUsername}?start=${task.clientId}`;
+                        try {
+                          await navigator.clipboard.writeText(link);
+                          setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
+                          setTimeout(() => setToast(null), 2400);
+                        } catch {
+                          setToast({ tone: 'error', message: 'Не удалось скопировать' });
+                        }
+                      }}
+                      className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
+                    >
+                      Копировать Telegram-ссылку
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
 
             {toast ? <div className="mt-3"><Toast tone={toast.tone} message={toast.message} /></div> : null}
           </aside>
