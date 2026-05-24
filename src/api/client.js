@@ -36,6 +36,12 @@ export const api = {
   listUsers: () => request('/api/users'),
   listProjects: () => request('/api/projects'),
 
+  // bot username для построения t.me/<bot>?start=<clientId> deep-link
+  botInfo: async () => {
+    const h = await request('/api/health');
+    return h.channels?.telegram ?? null;
+  },
+
   // tasks (read)
   listTasks: ({ projectSlug } = {}) => {
     const qs = projectSlug ? `?projectSlug=${encodeURIComponent(projectSlug)}` : '';
@@ -55,6 +61,16 @@ export const api = {
     json('POST', `/api/tasks/${id}/assignees`, { userId }),
   requestClient: (id) =>
     json('POST', `/api/tasks/${id}/request-client`),
+  acceptContent: (id) =>
+    json('POST', `/api/tasks/${id}/transition`, { toStatus: 'done' }),
+
+  // admin / notifications
+  listNotifications: () => request('/api/admin/notifications'),
+  triggerNotifications: ({ virtualNow } = {}) => {
+    const qs = virtualNow ? `?virtualNow=${encodeURIComponent(virtualNow)}` : '';
+    return json('POST', `/api/admin/trigger-notifications${qs}`);
+  },
+  healthMetrics: () => request('/api/admin/health/metrics'),
 
   // guest / magic-link
   getGuestTask: (token) => request(`/api/guest/${token}`),

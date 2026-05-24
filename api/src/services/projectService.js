@@ -13,13 +13,17 @@ export async function listProjects() {
         p.status,
         p.priority,
         p.deadline,
-        c.company_name AS client_name,
+        c.id            AS client_id,
+        c.company_name  AS client_name,
+        c.email         AS client_email,
+        c.telegram_chat_id,
+        c.telegram_username,
         COUNT(t.id)::int                                              AS tasks_total,
         COUNT(t.id) FILTER (WHERE t.status = 'done')::int             AS tasks_done
      FROM projects p
      JOIN clients  c ON c.id = p.client_id
      LEFT JOIN tasks t ON t.project_id = p.id
-     GROUP BY p.id, c.company_name
+     GROUP BY p.id, c.id
      ORDER BY p.name`,
   );
 
@@ -39,6 +43,10 @@ export async function listProjects() {
       tasksTotal: total,
       tasksDone: done,
       progress,
+      clientId: row.client_id,
+      clientEmail: row.client_email,
+      telegramChatId: row.telegram_chat_id,
+      telegramUsername: row.telegram_username,
     };
   });
 }

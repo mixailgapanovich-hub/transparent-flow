@@ -23,6 +23,7 @@ export default function App() {
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState(null);
   const [team, setTeam] = useState([]);
+  const [botUsername, setBotUsername] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -66,6 +67,9 @@ export default function App() {
     api.listUsers()
       .then((data) => { if (!cancelled) setTeam(data); })
       .catch((err) => console.error('[App] не удалось загрузить команду:', err));
+    api.botInfo()
+      .then((info) => { if (!cancelled) setBotUsername(info?.configured ? info.botUsername : null); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [currentUser]);
 
@@ -164,6 +168,16 @@ export default function App() {
     }
   };
 
+  const acceptContent = async (taskId) => {
+    try {
+      const updated = await api.acceptContent(taskId);
+      replaceTask(updated);
+      window.alert('Контент принят. Клиенту отправлено подтверждающее письмо.');
+    } catch (err) {
+      window.alert('Не удалось принять контент: ' + (err.detail || err.message));
+    }
+  };
+
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
   // Здесь только обновляем локальный кэш задачи свежим DTO.
   const handleGuestUploaded = (updatedTask) => {
@@ -247,7 +261,7 @@ export default function App() {
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
               </button>
               {isNotificationsOpen && (
-                <NotificationsDropdown onClose={() => setIsNotificationsOpen(false)} />
+                <NotificationsDropdown isAdmin={isAdmin} onClose={() => setIsNotificationsOpen(false)} />
               )}
             </div>
 
@@ -343,6 +357,7 @@ export default function App() {
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
         team={team}
+        botUsername={botUsername}
         isAdmin={isAdmin}
         onClose={closeTask}
         onOpenGuestView={() => {
@@ -372,6 +387,10 @@ export default function App() {
         onAddAssignee={(assignee) => {
           if (!selectedTask) return;
           addTaskAssignee(selectedTask.id, assignee);
+        }}
+        onAcceptContent={() => {
+          if (!selectedTask) return;
+          acceptContent(selectedTask.id);
         }}
         onSave={async (patch) => {
           if (!selectedTask) {

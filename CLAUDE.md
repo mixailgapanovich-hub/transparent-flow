@@ -6,7 +6,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 **"Прозрачный поток"** (Transparent Flow) — Kanban demo for a digital agency task management system. Built as a diploma thesis prototype for **АденаДиджитал**, a digital agency that manages creative/web projects for clients.
 
-**Scope:** React frontend + Express/PostgreSQL backend. MVP is feature-complete after Iteration 5: bcrypt + JWT login (httpOnly cookie), `requireAuth` guarding every PM-side route, role-based FSM overrides (admin can roll back `done`, regular PM cannot — enforced server-side), plus everything from earlier iterations (kanban with drag-drop persisted to DB, comments, assignees, create-task, request-client with real magic-link token, guest upload page with file storage on disk).
+**Scope:** React frontend + Express/PostgreSQL backend. MVP closed after Iteration 5 (drag-drop / comments / assignees / magic-link guest upload / bcrypt+JWT auth / role-based FSM). Iteration 6 adds the cascading-notifications module (FR-04) and the legal "content accepted" act from chapter 4.2: a `node-cron` scheduler, three-level escalation by business days (Day 0 / +2 BD / +4 BD / exhausted at 5+), Telegram bot (real, via BotFather, polling-mode by default) + SMTP/Ethereal email channels, "Accept content" button in TaskModal that sends a confirmation email to the client, plus admin-only demo controls in the notifications dropdown that compress days into seconds via a virtualNow override.
 
 **Business problem it solves:** Agency teams lose track of client tasks across email chains. This dashboard gives PMs a central board; clients get a read-only "magic link" to see their task status and upload materials without needing an account.
 
@@ -33,6 +33,7 @@ npm run dev                  # Start Express with --watch on :3001
 npm run db:migrate           # Apply pending migrations from api/migrations/*.sql
 npm run db:seed              # Reseed DB from src/data/*.js mock files
 npm run db:reset             # DROP SCHEMA + migrate + seed (nuclear option)
+npm run selfcheck            # Pre-flight: ENV, /api/health, Telegram, SMTP — exits 0/1
 ```
 
 No test runner configured.
@@ -64,6 +65,8 @@ Tailwind v4 uses `@tailwindcss/postcss` — no `tailwind.config.js`. Classes are
 | bcrypt | 5 | Password hashing (cost=10) |
 | jsonwebtoken | 9 | JWT sign/verify (HS256) |
 | cookie-parser | 1 | Reads `tflow_session` httpOnly cookie into `req.cookies` |
+| node-cron | 4 | Periodic notification scheduler |
+| nodemailer | 8 | SMTP email (with Ethereal fallback for dev) |
 | cors / morgan / dotenv | — | Standard middleware |
 
 No ORM — plain SQL via parameterized `pool.query()`. No NestJS, Redis, BullMQ, or S3 (those are in the diploma's "ideal" track but not in MVP; see `docs/database.sql` and the PDF spec).
@@ -190,14 +193,23 @@ api/
     │   ├── projects.js              # GET /api/projects
     │   ├── tasks.js                 # GET/POST/PATCH/DELETE /api/tasks + mutation sub-routes
     │   ├── users.js                 # GET /api/users
-    │   └── guest.js                 # GET /api/guest/:token, POST upload (multer + filters)
+    │   ├── guest.js                 # GET /api/guest/:token, POST upload (multer + filters)
+    │   ├── telegram.js              # POST /api/telegram/webhook/:secret + handleUpdate (shared with polling)
+    │   └── admin.js                 # /trigger-notifications, /notifications, /health/metrics
+    ├── scheduler.js                 # node-cron, calls notificationService.tick()
     └── services/
         ├── authService.js           # login(), signToken/verifyToken, AUTH_COOKIE + COOKIE_OPTIONS
         ├── projectService.js        # listProjects() — computes tasksDone/progress from DB
         ├── taskService.js           # listTasks, getTaskById, all mutation helpers, exports HttpError
         ├── taskWorkflow.js          # FSM, mirror of frontend taskWorkflow.js
         ├── userService.js           # listUsers() — used by team dropdown
-        └── guestService.js          # getTaskByToken, applyGuestUpload — owns storage/ writes
+        ├── guestService.js          # getTaskByToken, applyGuestUpload — owns storage/ writes
+        ├── businessDays.js          # Mon–Fri working-day diff
+        ├── notificationTemplates.js # cascade level 1/2/3 + verification act
+        ├── notificationService.js   # tick(), sendVerificationEmail(); idempotency + FOR UPDATE
+        └── channels/
+            ├── telegram.js          # Bot API client, webhook + polling, initTelegram(), send()
+            └── email.js             # nodemailer + Ethereal fallback, initEmail(), send()
 ```
 
 ```
@@ -209,7 +221,7 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 
 ## Backend Notes
 
-### API surface (Iteration 5)
+### API surface (Iteration 6)
 **Auth** — every PM-side route below requires the `tflow_session` cookie (set by `/api/auth/login`). 401 if missing/invalid. The `/api/guest/*` and `/api/health` routes are public.
 
 | Method | Path | Auth | Body | Returns |
@@ -231,6 +243,12 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 | POST | `/api/tasks/:id/request-client` | ✅ | — | Updated Task with new `magicLink`, status=waiting, 72h TTL |
 | GET  | `/api/guest/:token` | — | — | Mini DTO `{taskId, title, description, deadline, projectName, expiresAt}`. 404 if token unknown, 410 if expired or task no longer in `waiting` |
 | POST | `/api/guest/:token/upload` | — | `multipart/form-data` with `files[]` and optional `comment` | Updated full Task. Status → `client-uploaded`, token invalidated, files written to `api/storage/<task_id>/`, audit event `client_upload` |
+| POST | `/api/telegram/webhook/:secret` | — | Telegram update JSON | `{ok:true}`. Used in webhook-mode; polling-mode calls the same handler internally |
+| GET | `/api/admin/notifications` | ✅ | — | Last 30 system events for the bell dropdown (any logged-in PM) |
+| POST | `/api/admin/trigger-notifications?virtualNow=ISO` | ✅ admin | — | Manually runs one cascade tick with optional virtual-now override; returns `{processed, sent, failed, skipped}` |
+| GET | `/api/admin/health/metrics` | ✅ admin | — | Counts of notification events for the last 24h (for screenshots/diploma) |
+
+`GET /api/health` is also extended in Iter 6 with `scheduler.{running,lastTickAt,lastTickDurationMs,lastTickError,lastTickSummary}` and `channels.{telegram,email}` blocks — one call answers "is the cascade alive and which channels are wired".
 
 All mutations:
 - Write to `task_events` (event_type=`history` for human-readable feed; `status_change`, `magic_link_issued` for structured audit).
@@ -267,6 +285,46 @@ All mutations:
   - `pm@adena.local` / `pm123` (role `pm`)
   - `mentor@adena.local` / `mentor123` (role `pm`)
 - Secrets live in `api/.env` (`JWT_SECRET`, `JWT_TTL`). The example file has placeholder values; for production replace with something long and random.
+
+### Cascading notifications (Iteration 6, FR-04)
+Implementation of the cascade module described in diploma section 3.3.2.
+
+**Module layout:**
+- `api/src/scheduler.js` — owns the `node-cron` job. By default `0 * * * *` (hourly). Configurable via `NOTIFICATION_CRON`. Also fires a one-off tick 5s after server start to handle restart catch-up.
+- `api/src/services/notificationService.js` — the brain. Exposes:
+  - `tick({now})` — one pass over all tasks in `waiting` with a magic token. For each task: locks the row, computes business days since `magic_link_issued`/`status_change → waiting`, picks the next escalation level (max attempted + 1), sends through the level's channels, writes either `notification_sent` or `notification_failed` to `task_events`. Idempotent: ticking twice in the same window won't re-send.
+  - `sendVerificationEmail(taskId)` — called from `taskService.transitionStatus` **after COMMIT** when a task moves `client-uploaded → done`. Writes `verification_email_sent` (or `_failed`) to `task_events`.
+- `api/src/services/businessDays.js` — `businessDaysBetween(from, to)`, Mon–Fri only. Doesn't account for BY public holidays (acceptable for MVP).
+- `api/src/services/notificationTemplates.js` — three message templates (per table 3.12 of the diploma) plus the verification-act template.
+- `api/src/services/channels/telegram.js` — fetch-based Telegram Bot API client. Supports both **webhook** (if `TELEGRAM_WEBHOOK_URL` is set) and **polling** (default — long-polls `getUpdates`). Polling means no public URL / ngrok is needed for development.
+- `api/src/services/channels/email.js` — `nodemailer` wrapper. If `SMTP_HOST` is set uses real SMTP; otherwise auto-creates an **Ethereal** test account and logs the preview URL for every message sent. Preview URLs are also stored in `task_events.payload.deliveries.email.previewUrl` so the UI can render them as clickable links in the notifications dropdown.
+
+**Cascade timing:**
+| Level | Trigger (business days since waiting) | Channels | Tone |
+|---|---|---|---|
+| 1 | 0 | Telegram | friendly |
+| 2 | +2 | Telegram + Email | business |
+| 3 | +4 | Telegram + Email | formal + contract clause |
+| cascade_exhausted | +5 | internal PM only (audit event) | — |
+
+**Idempotency model:**
+- `getMaxAttemptedLevel(taskId)` counts **both** `notification_sent` and `notification_failed`. A failed attempt is still considered "level processed" — otherwise a disabled channel would cause the cascade to loop on level 1 forever. PM sees failed attempts in the bell dropdown and can re-trigger via demo controls.
+- Magic-link TTL is **7 days** (not 72h) starting from Iter 6 — must cover the full 5-business-day cascade window. Successful sends bump the expiry to `now + 7 days`.
+- `SELECT … FOR UPDATE` inside each task's transaction guards against parallel ticks racing.
+
+**Telegram client onboarding flow:**
+1. PM clicks "Request client content" on a task → server sets `magic_link_token`, status → `waiting`.
+2. In TaskModal, a blue panel shows a deep-link `https://t.me/<bot>?start=<clientId>` (rendered only if `botUsername` is configured AND `clients.telegram_chat_id` is null).
+3. PM forwards that URL to the client (any channel — chat, email, paper). Client opens it in Telegram, presses "Start" — bot receives `/start <clientId>` (handled by `routes/telegram.js::handleUpdate`), backend writes `telegram_chat_id` to `clients`, bot replies "Готово! Чат привязан…".
+4. From the next tick on, that client's tasks deliver notifications to their Telegram.
+
+**Demo controls (admin):**
+The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 дня", "+5 дней", "+8 дней"). Each calls `POST /api/admin/trigger-notifications` with `virtualNow = now + N days`. This compresses a 5-day cascade demo into seconds without faking timestamps in the database.
+
+**Self-check / observability:**
+- `npm run selfcheck` in `api/` — standalone script. Checks required ENV, calls `/api/health`, dials Telegram `getMe` if token is present, verifies SMTP if configured. Exits 0/1 — perfect for pre-defense.
+- Startup ENV sanity warnings: `TELEGRAM_BOT_TOKEN` without `TELEGRAM_BOT_USERNAME`, etc.
+- All notification deliveries logged to `task_events` with structured `payload` (level, channels, deliveries, daysAt). Aggregate counts available via `GET /api/admin/health/metrics`.
 
 ### File storage (guest uploads)
 - Files go to `api/storage/<task_id>/<uuid>.<ext>` on local disk. The original filename is kept in `task_files.filename`; on disk we only store a UUID to defuse path-traversal and filename collisions.
