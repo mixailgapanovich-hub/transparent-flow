@@ -34,6 +34,7 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
@@ -103,6 +104,8 @@ export default function App() {
   };
 
   const createTask = useCallback(async () => {
+    if (isCreatingTask) return;
+    setIsCreatingTask(true);
     try {
       const created = await api.createTask({
         projectSlug: 'proj-eco',
@@ -115,8 +118,10 @@ export default function App() {
       setSelectedTaskId(created.id);
     } catch (err) {
       showToast('error', 'Не удалось создать задачу: ' + (err.detail || err.message));
+    } finally {
+      setIsCreatingTask(false);
     }
-  }, [showToast]);
+  }, [showToast, isCreatingTask]);
 
   const updateTask = async (taskId, patch) => {
     try {
@@ -336,6 +341,7 @@ export default function App() {
       onChangeStatus={updateTaskStatus}
       onTaskClick={openTask}
       onCreateTask={createTask}
+      isCreatingTask={isCreatingTask}
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}
@@ -347,6 +353,7 @@ export default function App() {
       onChangeStatus={updateTaskStatus}
       onTaskClick={openTask}
       onCreateTask={createTask}
+      isCreatingTask={isCreatingTask}
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}

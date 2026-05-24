@@ -8,7 +8,7 @@ import {
   verticalListSortingStrategy, useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame, X, Smartphone } from 'lucide-react';
+import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame, X, Smartphone, Loader2 } from 'lucide-react';
 import { COLUMNS } from '../data/mockData';
 import TasksMindMapView from './TasksMindMapView';
 import { TASK_COLUMN_STYLES, TASK_TAG_BADGE, UI_BUTTON_STYLES, PROJECT_BADGE_STYLES } from '../theme/taskStyles';
@@ -240,6 +240,7 @@ export default function KanbanBoard({
   activeId,
   setActiveId,
   onCreateTask,
+  isCreatingTask = false,
   onChangeStatus,
   columns: propColumns,
   showProjectBadge = false,
@@ -319,9 +320,14 @@ export default function KanbanBoard({
         <button
           type="button"
           onClick={onCreateTask}
-          className={`${UI_BUTTON_STYLES.primary} px-5 py-3 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 text-sm touch-manipulation`}
+          disabled={isCreatingTask}
+          className={`${UI_BUTTON_STYLES.primary} px-5 py-3 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 text-sm touch-manipulation active:scale-95 transition-all
+            ${isCreatingTask ? 'opacity-70 cursor-not-allowed' : ''}`}
         >
-          <Plus size={18} /> Задача
+          {isCreatingTask
+            ? <Loader2 size={18} className="animate-spin" />
+            : <Plus size={18} />}
+          {isCreatingTask ? 'Создаём…' : 'Задача'}
         </button>
 
         {projectFilterLabel && onClearProjectFilter && (
@@ -407,9 +413,14 @@ export default function KanbanBoard({
         <button
           type="button"
           onClick={onCreateTask}
-          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0`}
+          disabled={isCreatingTask}
+          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 transition-all
+            ${isCreatingTask ? 'opacity-70 cursor-not-allowed' : 'active:scale-95'}`}
         >
-          <Plus size={20} /> Создать задачу
+          {isCreatingTask
+            ? <Loader2 size={20} className="animate-spin" />
+            : <Plus size={20} />}
+          {isCreatingTask ? 'Создаём…' : 'Создать задачу'}
         </button>
 
         {!showColumnFilter && <BoardProgress tasks={tasks} />}
