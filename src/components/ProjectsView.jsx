@@ -51,7 +51,7 @@ export default function ProjectsView({ projects = [], onOpenProject }) {
           return (
             <div
               key={project.id}
-              onClick={() => onOpenProject?.(project.id)}
+              onClick={() => onOpenProject?.(project.slug ?? project.id)}
               className="group bg-[#F4F9FF] border border-blue-100 p-7 rounded-4xl hover:border-blue-300 hover:shadow-2xl hover:shadow-blue-100/50 transition-all cursor-pointer relative flex flex-col h-full"
             >
               <div className="absolute top-6 right-6 w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-400 opacity-0 group-hover:opacity-100 transition-all group-hover:rotate-12">
