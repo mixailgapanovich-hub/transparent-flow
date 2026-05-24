@@ -12,7 +12,7 @@ export default function Sidebar({ activeTab, setActiveTab, onSettingsClick }) {
 
   return (
     // Убираем fixed, оставляем flex-col и фиксированную ширину
-    <aside className="w-24 h-full flex flex-col items-center py-10 bg-white border-r border-slate-100 flex-shrink-0">
+    <aside className="hidden md:flex w-24 h-full flex-col items-center py-10 bg-white border-r border-slate-100 flex-shrink-0">
       <div className="bg-[#3C50B4] p-3 rounded-2xl mb-12 shadow-lg shadow-blue-100">
         <Zap className="text-white" size={28} fill="currentColor" />
       </div>

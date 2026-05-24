@@ -14,6 +14,7 @@ import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
 import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
+import BottomNav from './components/BottomNav';
 
 export default function App() {
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
@@ -256,23 +257,23 @@ export default function App() {
       {/* 2. Основной контент (Центр + Право) */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
         
-        {/* Header — зафиксирован сверху */}
-        <header className="h-20 border-b border-slate-100 flex items-center justify-between px-8 bg-white z-10">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-black text-slate-900 font-machine tracking-tighter">Прозрачный поток</h1>
-            <div className="px-3 py-1 bg-[#3C50B4]/5 text-[#3C50B4] text-[10px] font-black rounded-lg uppercase tracking-widest border border-[#3C50B4]/10">
+        {/* Header — адаптивный: h-14 на мобилке, h-20 на десктопе */}
+        <header className="h-14 md:h-20 border-b border-slate-100 flex items-center justify-between px-4 md:px-8 bg-white z-10 shrink-0">
+          <div className="flex items-center gap-2 md:gap-4">
+            <h1 className="text-base md:text-2xl font-black text-slate-900 font-machine tracking-tighter">Прозрачный поток</h1>
+            <div className="hidden md:block px-3 py-1 bg-[#3C50B4]/5 text-[#3C50B4] text-[10px] font-black rounded-lg uppercase tracking-widest border border-[#3C50B4]/10">
               Agency Mode
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 md:gap-6">
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen((v) => !v)}
                 className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
                 aria-label="Уведомления"
               >
-                <Bell size={22} />
+                <Bell size={20} />
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
               </button>
               {isNotificationsOpen && (
@@ -280,20 +281,24 @@ export default function App() {
               )}
             </div>
 
-            <div className="flex items-center gap-3 pl-6 border-l border-slate-100">
+            <div className="flex items-center gap-2 md:gap-3 md:pl-6 md:border-l border-slate-100">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-black text-slate-800 leading-none">{currentUser.name}</p>
                 <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">
                   {currentUser.role === 'admin' ? 'Admin' : 'Producer'}
                 </p>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-[#FFD700] flex items-center justify-center font-black text-[#3C50B4] shadow-md shadow-yellow-100 border-2 border-white">
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                title="Настройки"
+                className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-[#FFD700] flex items-center justify-center font-black text-[#3C50B4] shadow-md shadow-yellow-100 border-2 border-white text-xs md:text-sm hover:scale-105 transition-transform active:scale-95"
+              >
                 {currentUser.name?.split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?'}
-              </div>
+              </button>
               <button
                 onClick={handleLogout}
                 title="Выйти"
-                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                className="hidden md:flex p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
               >
                 <LogOut size={18} />
               </button>
@@ -305,13 +310,13 @@ export default function App() {
         <div className="flex-1 flex overflow-hidden">
           
           {/* КАНБАН-ЗОНА: Выделяем цветом и отступами */}
-          <main className="flex-1 bg-[#F8FAFC] p-6 overflow-hidden flex flex-col">
-            
+          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-6 overflow-hidden flex flex-col">
+
             {/* Оболочка самого канбана — "белая доска" на сером фоне */}
-            <div className="flex-1 bg-white rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
-              
+            <div className="flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
+
               {/* Внутренний скролл только для доски */}
-              <div className="flex-1 overflow-x-auto p-8 custom-scrollbar">
+              <div className="flex-1 overflow-auto p-3 md:p-8 pb-20 md:pb-8 custom-scrollbar">
   {(activeTab === 'dashboard' || activeTab === 'tasks') && tasksLoading ? (
     <div className="flex items-center justify-center h-full text-slate-400 font-machine text-sm">
       Загружаем задачи...
@@ -432,6 +437,12 @@ export default function App() {
       />
 
       <ToastContainer toasts={toasts} />
+
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={(tab) => { setActiveTab(tab); setProjectFilter(null); }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');

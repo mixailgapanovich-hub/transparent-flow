@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   DndContext, closestCenter, pointerWithin, KeyboardSensor, PointerSensor,
   useSensor, useSensors, DragOverlay, useDroppable
@@ -8,7 +8,7 @@ import {
   verticalListSortingStrategy, useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame, X } from 'lucide-react';
+import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame, X, Smartphone } from 'lucide-react';
 import { COLUMNS } from '../data/mockData';
 import TasksMindMapView from './TasksMindMapView';
 import { TASK_COLUMN_STYLES, TASK_TAG_BADGE, UI_BUTTON_STYLES, PROJECT_BADGE_STYLES } from '../theme/taskStyles';
@@ -24,6 +24,60 @@ const Badge = ({ type }) => {
     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-tight ${styles[type]}`}>
       {type === 'Блокирующая' ? '🔴 ' : type === 'Ключевая' ? '🟡 ' : '⚪ '}{type}
     </span>
+  );
+};
+
+const TAG_LEFT_BORDER = {
+  'Блокирующая': 'border-l-red-500',
+  'Ключевая':    'border-l-amber-400',
+  'Обычная':     'border-l-slate-300',
+};
+
+const MobileTaskCard = ({ task, onClick, showProjectBadge }) => {
+  const isOverdue = useMemo(() => new Date(task.deadline) < new Date(), [task.deadline]);
+  const isUrgent = useMemo(() => {
+    const diff = new Date(task.deadline) - new Date();
+    return diff > 0 && diff < 24 * 60 * 60 * 1000;
+  }, [task.deadline]);
+  const projectStyle = showProjectBadge && task.projectId ? PROJECT_BADGE_STYLES[task.projectId] : null;
+  const borderColor = TAG_LEFT_BORDER[task.tag] ?? 'border-l-slate-300';
+
+  return (
+    <div
+      onClick={() => onClick(task.id)}
+      className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-4 border-l-4 ${borderColor}
+        active:scale-[0.98] transition-transform cursor-pointer`}
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <Badge type={task.tag} />
+        {projectStyle && (
+          <div className={`flex items-center gap-1 shrink-0 ${projectStyle.text}`}>
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${projectStyle.dot}`} />
+            <span className="text-[9px] font-bold uppercase tracking-wide">{projectStyle.label}</span>
+          </div>
+        )}
+      </div>
+      <h4 className="text-sm font-semibold text-slate-800 leading-snug mb-3 line-clamp-2">{task.title}</h4>
+      <div className="flex items-center justify-between">
+        <span className={`flex items-center gap-1 text-[11px] font-medium
+          ${isOverdue ? 'text-red-500' : isUrgent ? 'text-amber-500' : 'text-slate-400'}`}
+        >
+          <Clock size={11} />
+          {new Date(task.deadline).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+        </span>
+        <div className="flex -space-x-1.5">
+          {(task.assignees ?? []).slice(0, 3).map((a, i) => (
+            <div
+              key={i}
+              className="w-6 h-6 rounded-lg bg-[#FFD700] border-2 border-white flex items-center justify-center text-[8px] font-black text-[#3C50B4]"
+              title={a.name}
+            >
+              {a.initials}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -196,6 +250,26 @@ export default function KanbanBoard({
   const columns = propColumns ?? COLUMNS;
   const [boardView, setBoardView] = useState('kanban');
   const [hiddenColumnIds, setHiddenColumnIds] = useState([]);
+  const [mobileActiveCol, setMobileActiveCol] = useState('in-progress');
+  const swipeTouchStartX = useRef(null);
+
+  const handleSwipeStart = (e) => {
+    swipeTouchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleSwipeEnd = (e) => {
+    if (swipeTouchStartX.current === null) return;
+    const diff = swipeTouchStartX.current - e.changedTouches[0].clientX;
+    swipeTouchStartX.current = null;
+    if (Math.abs(diff) < 60) return; // слишком короткий свайп — игнорируем
+    const colIds = columns.map((c) => c.id);
+    const idx = colIds.indexOf(mobileActiveCol);
+    if (diff > 0 && idx < colIds.length - 1) {
+      setMobileActiveCol(colIds[idx + 1]); // свайп влево → следующая вкладка
+    } else if (diff < 0 && idx > 0) {
+      setMobileActiveCol(colIds[idx - 1]); // свайп вправо → предыдущая вкладка
+    }
+  };
 
   const displayColumns = useMemo(
     () => showColumnFilter ? columns.filter(c => !hiddenColumnIds.includes(c.id)) : columns,
@@ -237,8 +311,98 @@ export default function KanbanBoard({
     );
   };
 
-  return (
-    <div className="h-full min-h-0 flex flex-col">
+  /* ─── МОБИЛЬНЫЙ VIEW (< md) ─────────────────────────────────────────── */
+  const mobileView = (
+    <div className="md:hidden flex flex-col h-full min-h-0">
+      {/* Header мобильного вида */}
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap shrink-0">
+        <button
+          type="button"
+          onClick={onCreateTask}
+          className={`${UI_BUTTON_STYLES.primary} px-5 py-3 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 text-sm touch-manipulation`}
+        >
+          <Plus size={18} /> Задача
+        </button>
+
+        {projectFilterLabel && onClearProjectFilter && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3C50B4]/5 border border-[#3C50B4]/20 rounded-xl text-[#3C50B4] shrink-0">
+            <span className="text-[10px] font-black uppercase tracking-wider">{projectFilterLabel}</span>
+            <button onClick={onClearProjectFilter} aria-label="Сбросить фильтр">
+              <X size={12} strokeWidth={3} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {boardView === 'mindmap' ? (
+        /* Граф зависимостей недоступен на мобилке */
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400">
+          <Smartphone size={40} strokeWidth={1.5} className="text-slate-300" />
+          <p className="text-sm font-semibold">Mind Map — только на десктопе</p>
+          <p className="text-[11px] text-slate-300 text-center px-6">Откройте приложение на компьютере для работы с графом зависимостей</p>
+        </div>
+      ) : (
+        <>
+          {/* Вкладки статусов — горизонтальный скролл с hint */}
+          <div className="relative shrink-0 mb-3">
+          <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+            {columns.map((col) => {
+              const count = tasks.filter((t) => t.status === col.id).length;
+              const isActive = mobileActiveCol === col.id;
+              return (
+                <button
+                  key={col.id}
+                  onClick={() => setMobileActiveCol(col.id)}
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border
+                    ${isActive
+                      ? 'bg-[#3C50B4] text-white border-[#3C50B4] shadow-md'
+                      : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                    }`}
+                >
+                  {col.title}
+                  <span className={`min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-black px-1
+                    ${isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {/* Gradient hint → есть ещё вкладки */}
+          <div className="absolute right-0 top-0 bottom-2 w-8 bg-gradient-to-l from-white to-transparent pointer-events-none" />
+          </div>
+
+          {/* Список карточек — swipe left/right меняет вкладку */}
+          <div
+            className="flex-1 overflow-y-auto space-y-3 custom-scrollbar min-h-0"
+            onTouchStart={handleSwipeStart}
+            onTouchEnd={handleSwipeEnd}
+          >
+            {tasks.filter((t) => t.status === mobileActiveCol).length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 text-slate-300 gap-2">
+                <p className="text-sm font-semibold">Нет задач</p>
+                <p className="text-[11px]">в этой колонке</p>
+              </div>
+            ) : (
+              tasks.filter((t) => t.status === mobileActiveCol).map((task) => (
+                <MobileTaskCard
+                  key={task.id}
+                  task={task}
+                  onClick={onTaskClick}
+                  showProjectBadge={showProjectBadge}
+                />
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  /* ─── ДЕСКТОПНЫЙ VIEW (≥ md) ─────────────────────────────────────────── */
+  const desktopView = (
+    <div className="hidden md:flex h-full min-h-0 flex-col">
       <div className="mb-4 flex w-full flex-wrap items-center justify-between gap-4">
         <button
           type="button"
@@ -272,9 +436,7 @@ export default function KanbanBoard({
             type="button"
             onClick={() => setBoardView('kanban')}
             className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-widest transition-colors ${
-              boardView === 'kanban'
-                ? 'bg-white text-[#3C50B4] shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
+              boardView === 'kanban' ? 'bg-white text-[#3C50B4] shadow-sm' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
             <LayoutGrid size={18} />
@@ -284,9 +446,7 @@ export default function KanbanBoard({
             type="button"
             onClick={() => setBoardView('mindmap')}
             className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-widest transition-colors ${
-              boardView === 'mindmap'
-                ? 'bg-white text-[#3C50B4] shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
+              boardView === 'mindmap' ? 'bg-white text-[#3C50B4] shadow-sm' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
             <GitBranch size={18} />
@@ -347,6 +507,13 @@ export default function KanbanBoard({
           <TasksMindMapView tasks={tasks} onTaskClick={onTaskClick} />
         </div>
       )}
+    </div>
+  );
+
+  return (
+    <div className="h-full min-h-0 flex flex-col">
+      {mobileView}
+      {desktopView}
     </div>
   );
 }

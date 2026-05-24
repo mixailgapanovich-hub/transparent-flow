@@ -35,7 +35,7 @@ export function useToastState() {
 export function ToastContainer({ toasts }) {
   if (toasts.length === 0) return null;
   return (
-    <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 items-end pointer-events-none">
+    <div className="fixed bottom-20 md:bottom-5 right-4 md:right-5 z-[100] flex flex-col gap-2 items-end pointer-events-none">
       {toasts.map((t) => (
         <Toast key={t.id} tone={t.tone} message={t.message} />
       ))}

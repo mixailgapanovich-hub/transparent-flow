@@ -9,7 +9,7 @@ export default function RightPanel({ onCreateTask, onOpenKb }) {
   ];
 
   return (
-    <aside className="w-20 lg:w-64 border-l border-slate-100 bg-white flex flex-col p-4 gap-4">
+    <aside className="hidden md:flex w-20 lg:w-64 border-l border-slate-100 bg-white flex-col p-4 gap-4">
       <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 hidden lg:block">Быстрые действия</h4>
 
       {actions.map((act) => (

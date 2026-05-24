@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Link2, MessageCircle, Send, Tag, Users, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, Link2, MessageCircle, Send, Tag, Users, X } from 'lucide-react';
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
@@ -182,10 +182,11 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
   const tagBadgeClass = TASK_TAG_BADGE[draft.tag] ?? TASK_TAG_BADGE.Обычная;
 
   return (
+    /* Backdrop: на десктопе — затемнение + центрирование; на мобилке — прозрачный */
     <div
-      className={`fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4 transition-opacity duration-200 ${
-        isOpen ? 'opacity-100' : 'opacity-0'
-      }`}
+      className={`fixed inset-0 z-[60] transition-opacity duration-200
+        md:flex md:items-center md:justify-center md:bg-slate-900/30 md:p-4
+        ${isOpen ? 'opacity-100' : 'opacity-0'}`}
       onClick={requestClose}
       aria-hidden="true"
     >
@@ -193,28 +194,47 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-modal-title"
-        className={`max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl transition-transform duration-200 ${
-          isOpen ? 'scale-100' : 'scale-95'
-        }`}
+        className={`flex flex-col bg-white
+          w-full h-full
+          md:max-h-[90vh] md:max-w-6xl md:rounded-3xl md:border md:border-slate-200 md:shadow-2xl md:h-auto
+          transition-all duration-200
+          ${isOpen ? 'opacity-100 translate-y-0 md:scale-100' : 'opacity-0 translate-y-4 md:scale-95'}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className={`rounded-md px-2 py-1 text-xs font-bold ${statusBadgeClass}`}>Статус: {TASK_STATUS_LABEL[draft.status]}</span>
-            <span className={`rounded-md px-2 py-1 text-xs font-bold ${tagBadgeClass}`}>Приоритет: {draft.tag}</span>
-          </div>
+        <header className="flex items-center border-b border-slate-100 px-4 md:px-6 py-3 md:py-4 gap-3 shrink-0">
+          {/* Кнопка назад — только на мобилке */}
           <button
             type="button"
             onClick={requestClose}
-            className={`p-2 ${UI_BUTTON_STYLES.ghost}`}
+            className="md:hidden p-1 -ml-1 text-slate-400 hover:text-slate-600 transition-colors"
+            aria-label="Назад"
+          >
+            <ChevronLeft size={22} />
+          </button>
+
+          {/* Бейджи статуса и приоритета */}
+          <div className="flex items-center gap-2 flex-1 flex-wrap">
+            <span className={`rounded-md px-2 py-1 text-xs font-bold ${statusBadgeClass}`}>
+              {TASK_STATUS_LABEL[draft.status]}
+            </span>
+            <span className={`rounded-md px-2 py-1 text-xs font-bold ${tagBadgeClass}`}>
+              {draft.tag}
+            </span>
+          </div>
+
+          {/* Кнопка закрыть — только на десктопе */}
+          <button
+            type="button"
+            onClick={requestClose}
+            className={`hidden md:flex p-2 ${UI_BUTTON_STYLES.ghost}`}
             aria-label="Закрыть модальное окно"
           >
             <X size={18} />
           </button>
         </header>
 
-        <div className="grid max-h-[calc(90vh-140px)] grid-cols-1 overflow-y-auto md:grid-cols-10">
-          <section className="md:col-span-7 border-r border-slate-100 p-6">
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-10 overflow-y-auto min-h-0">
+          <section className="md:col-span-7 md:border-r border-slate-100 p-4 md:p-6">
             <SectionTitle title="Основные поля" subtitle="Редактируйте задачу без перехода на отдельный экран" />
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Заголовок</label>
             <input
@@ -342,7 +362,7 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
             </div>
           </section>
 
-          <aside className="md:col-span-3 p-6">
+          <aside className="md:col-span-3 p-4 md:p-6 border-t md:border-t-0 border-slate-100">
             <SectionTitle title="Метаданные" subtitle="Управление статусом и атрибутами" />
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Статус</label>
             <select
@@ -523,7 +543,7 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
           </aside>
         </div>
 
-        <footer className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
+        <footer className="flex items-center justify-between md:justify-end gap-3 border-t border-slate-100 bg-slate-50 px-4 md:px-6 py-3 md:py-4 shrink-0">
           <button
             type="button"
             onClick={requestClose}

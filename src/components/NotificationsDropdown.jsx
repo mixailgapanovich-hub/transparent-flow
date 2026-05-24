@@ -99,7 +99,7 @@ export default function NotificationsDropdown({ onClose, isAdmin = false, onToas
   return (
     <div
       ref={ref}
-      className="absolute top-full right-0 mt-2 w-96 bg-white rounded-2xl shadow-xl border border-slate-100 z-50 overflow-hidden"
+      className="fixed left-2 right-2 top-14 md:absolute md:left-auto md:right-0 md:top-full md:mt-2 md:w-96 bg-white rounded-2xl shadow-xl border border-slate-100 z-[60] overflow-hidden"
     >
       <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
         <span className="text-[11px] font-black uppercase tracking-widest text-slate-800">
