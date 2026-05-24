@@ -148,17 +148,17 @@ async function processOneTask(client, taskRow, now) {
     clientName: t.contact_name,
   };
 
-  const { subject, body } = renderTemplate(nextLevel, ctx);
+  const { subject, telegramBody, emailText, emailHtml } = renderTemplate(nextLevel, ctx);
   const channels = CHANNELS_BY_LEVEL[nextLevel];
 
   const deliveries = {};
   for (const ch of channels) {
     try {
       if (ch === 'telegram') {
-        const r = await telegram.send(t.telegram_chat_id, body);
+        const r = await telegram.send(t.telegram_chat_id, telegramBody);
         deliveries.telegram = r;
       } else if (ch === 'email') {
-        const r = await email.send({ to: t.client_email, subject, body });
+        const r = await email.send({ to: t.client_email, subject, text: emailText, html: emailHtml });
         deliveries.email = r;
       }
     } catch (err) {
@@ -200,7 +200,7 @@ async function processOneTask(client, taskRow, now) {
 }
 
 async function emitCascadeExhausted(client, t) {
-  const { body } = renderCascadeExhausted({
+  const { emailText } = renderCascadeExhausted({
     projectName: t.project_name,
     taskTitle: t.title,
   });
@@ -208,7 +208,7 @@ async function emitCascadeExhausted(client, t) {
   await client.query(
     `INSERT INTO task_events (task_id, actor_type, event_type, payload)
      VALUES ($1, 'system', 'cascade_exhausted', $2::jsonb)`,
-    [t.id, JSON.stringify({ message: body })],
+    [t.id, JSON.stringify({ message: emailText })],
   );
   await client.query(
     `INSERT INTO task_events (task_id, actor_type, event_type, payload)
@@ -280,7 +280,7 @@ export async function sendVerificationEmail(taskId) {
   if (res.rowCount === 0) return { skipped: 'task-gone' };
   const t = res.rows[0];
   const acceptedAt = new Date();
-  const { subject, body } = renderVerificationAct({
+  const { subject, emailText, emailHtml } = renderVerificationAct({
     projectName: t.project_name,
     taskTitle: t.title,
     clientName: t.contact_name,
@@ -289,7 +289,7 @@ export async function sendVerificationEmail(taskId) {
 
   let result;
   try {
-    result = await email.send({ to: t.client_email, subject, body });
+    result = await email.send({ to: t.client_email, subject, text: emailText, html: emailHtml });
   } catch (err) {
     await pool.query(
       `INSERT INTO task_events (task_id, actor_type, event_type, payload)

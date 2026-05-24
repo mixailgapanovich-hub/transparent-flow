@@ -1,6 +1,5 @@
 import React from 'react';
 import { Calendar, Layers, Plus, ArrowUpRight } from 'lucide-react';
-import { MOCK_PROJECTS } from '../data/mockProjects';
 
 const PRIORITY_LABEL = {
   high: 'Высокий',
@@ -22,7 +21,7 @@ const STATUS_DOT = {
 
 const MAX_VISIBLE_MEMBERS = 3;
 
-export default function ProjectsView({ onOpenProject }) {
+export default function ProjectsView({ projects = [], onOpenProject }) {
   return (
     <div className="space-y-10 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
@@ -36,10 +35,17 @@ export default function ProjectsView({ onOpenProject }) {
         </button>
       </div>
 
+      {projects.length === 0 && (
+        <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
+          Проекты загружаются…
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {MOCK_PROJECTS.map((project) => {
-          const visibleMembers = project.members.slice(0, MAX_VISIBLE_MEMBERS);
-          const extraCount = project.members.length - visibleMembers.length;
+        {projects.map((project) => {
+          const members = project.members ?? [];
+          const visibleMembers = members.slice(0, MAX_VISIBLE_MEMBERS);
+          const extraCount = members.length - visibleMembers.length;
           const dotClass = STATUS_DOT[project.status] ?? 'bg-slate-300';
 
           return (

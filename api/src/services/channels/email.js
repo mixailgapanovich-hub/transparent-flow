@@ -66,10 +66,12 @@ export async function initEmail() {
 }
 
 /**
- * Отправка письма. Возвращает {ok, messageId, previewUrl?} или skipped.
+ * Отправка письма. Принимает { to, subject, text, html? }.
+ * html опциональный: если передан, клиенты получат HTML-версию, иначе только plain.
+ * Возвращает {ok, messageId, previewUrl?} или skipped.
  * previewUrl выставляется только для Ethereal — пишется в логи для проверки.
  */
-export async function send({ to, subject, body }) {
+export async function send({ to, subject, text, html }) {
   if (!emailState.configured || !transporter) return { skipped: 'not-configured' };
   if (!to) return { skipped: 'no-recipient' };
   try {
@@ -77,7 +79,8 @@ export async function send({ to, subject, body }) {
       from: emailState.from,
       to,
       subject,
-      text: body,
+      text,
+      ...(html ? { html } : {}),
     });
     emailState.lastSendAt = new Date().toISOString();
     emailState.lastError = null;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, LogOut } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import Sidebar from './components/Sidebar';
@@ -9,6 +9,7 @@ import GuestUploadPage from './components/GuestUploadPage';
 import LoginScreen from './components/LoginScreen';
 import { api } from './api/client';
 import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
+import { useToastState, ToastContainer } from './components/Toast';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
 import KnowledgeBase from './components/KnowledgeBase';
@@ -22,9 +23,13 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState(null);
+  const [projects, setProjects] = useState([]);
   const [team, setTeam] = useState([]);
   const [botUsername, setBotUsername] = useState(null);
   const [activeId, setActiveId] = useState(null);
+  // pendingByTaskId: Map<id, lastRequestedStatus> — защита от race в optimistic updates
+  const pendingByTaskId = useRef(new Map());
+  const { toasts, showToast } = useToastState();
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -67,6 +72,9 @@ export default function App() {
     api.listUsers()
       .then((data) => { if (!cancelled) setTeam(data); })
       .catch((err) => console.error('[App] не удалось загрузить команду:', err));
+    api.listProjects()
+      .then((data) => { if (!cancelled) setProjects(data); })
+      .catch((err) => console.error('[App] не удалось загрузить проекты:', err));
     api.botInfo()
       .then((info) => { if (!cancelled) setBotUsername(info?.configured ? info.botUsername : null); })
       .catch(() => {});
@@ -105,16 +113,16 @@ export default function App() {
       setTasks((prev) => [created, ...prev]);
       setSelectedTaskId(created.id);
     } catch (err) {
-      window.alert('Не удалось создать задачу: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось создать задачу: ' + (err.detail || err.message));
     }
-  }, []);
+  }, [showToast]);
 
   const updateTask = async (taskId, patch) => {
     try {
       const updated = await api.updateTask(taskId, patch);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось сохранить: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось сохранить: ' + (err.detail || err.message));
     }
   };
 
@@ -124,16 +132,22 @@ export default function App() {
     if (!canTransitionStatus(before.status, nextStatus, { isAdmin })) return;
 
     // Оптимистично обновляем UI, чтобы drag-and-drop ощущался мгновенным.
+    pendingByTaskId.current.set(taskId, nextStatus);
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus } : t)),
     );
     try {
       const updated = await api.transitionTask(taskId, nextStatus, { isAdmin });
+      // Если пока летел запрос юзер снова перетащил карточку — игнорируем устаревший ответ.
+      if (pendingByTaskId.current.get(taskId) !== nextStatus) return;
+      pendingByTaskId.current.delete(taskId);
       replaceTask(updated);
     } catch (err) {
-      // Откатываем при ошибке (например, сервер вернул FSM violation).
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? before : t)));
-      window.alert('Не удалось сменить статус: ' + (err.detail || err.message));
+      if (pendingByTaskId.current.get(taskId) === nextStatus) {
+        pendingByTaskId.current.delete(taskId);
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? before : t)));
+        showToast('error', 'Не удалось сменить статус: ' + (err.detail || err.message));
+      }
     }
   };
 
@@ -146,7 +160,7 @@ export default function App() {
       });
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось отправить комментарий: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось отправить комментарий: ' + (err.detail || err.message));
     }
   };
 
@@ -155,7 +169,7 @@ export default function App() {
       const updated = await api.addAssignee(taskId, assignee.id);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось назначить исполнителя: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось назначить исполнителя: ' + (err.detail || err.message));
     }
   };
 
@@ -164,7 +178,7 @@ export default function App() {
       const updated = await api.requestClient(taskId);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось запросить материалы: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось запросить материалы: ' + (err.detail || err.message));
     }
   };
 
@@ -172,9 +186,9 @@ export default function App() {
     try {
       const updated = await api.acceptContent(taskId);
       replaceTask(updated);
-      window.alert('Контент принят. Клиенту отправлено подтверждающее письмо.');
+      showToast('success', 'Контент принят. Клиенту отправлено подтверждающее письмо.');
     } catch (err) {
-      window.alert('Не удалось принять контент: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось принять контент: ' + (err.detail || err.message));
     }
   };
 
@@ -256,12 +270,13 @@ export default function App() {
               <button
                 onClick={() => setIsNotificationsOpen((v) => !v)}
                 className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                aria-label="Уведомления"
               >
                 <Bell size={22} />
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
               </button>
               {isNotificationsOpen && (
-                <NotificationsDropdown isAdmin={isAdmin} onClose={() => setIsNotificationsOpen(false)} />
+                <NotificationsDropdown isAdmin={isAdmin} onClose={() => setIsNotificationsOpen(false)} onToast={showToast} />
               )}
             </div>
 
@@ -336,7 +351,7 @@ export default function App() {
       onClearProjectFilter={() => setProjectFilter(null)}
     />
   ) : activeTab === 'projects' ? (
-    <ProjectsView onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} />
+    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
   ) : (
@@ -380,6 +395,7 @@ export default function App() {
           await requestClientUpdate(selectedTask.id);
           return true;
         }}
+        onRequestTelegramLink={selectedTask?.clientId ? () => api.requestTelegramLink(selectedTask.clientId) : undefined}
         onSendComment={(message) => {
           if (!selectedTask) return;
           appendTaskComment(selectedTask.id, message);
@@ -394,7 +410,7 @@ export default function App() {
         }}
         onSave={async (patch) => {
           if (!selectedTask) {
-            window.alert('Не удалось сохранить: задача не найдена.');
+            showToast('error', 'Не удалось сохранить: задача не найдена.');
             return;
           }
           // Сначала статус (если меняется) — отдельный эндпоинт с FSM-проверкой,
@@ -410,10 +426,12 @@ export default function App() {
         }}
       />
 
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
       />
+
+      <ToastContainer toasts={toasts} />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');

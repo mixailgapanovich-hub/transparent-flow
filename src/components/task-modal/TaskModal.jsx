@@ -50,7 +50,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -66,6 +66,8 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
   const [isOpen, setIsOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [isRequestLoading, setIsRequestLoading] = useState(false);
+  const [telegramLinkData, setTelegramLinkData] = useState(null);
+  const [telegramLinkBusy, setTelegramLinkBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const commentsRef = useRef(null);
 
@@ -151,6 +153,29 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
     commentsRef.current.scrollTop = commentsRef.current.scrollHeight;
   }, [task?.comments]);
 
+  const handleRequestTelegramLink = async () => {
+    if (!onRequestTelegramLink) return;
+    setTelegramLinkBusy(true);
+    try {
+      const data = await onRequestTelegramLink();
+      setTelegramLinkData(data);
+      if (data?.link) {
+        try {
+          await navigator.clipboard.writeText(data.link);
+          setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
+        } catch {
+          setToast({ tone: 'info', message: 'Ссылка сгенерирована — скопируйте вручную' });
+        }
+        setTimeout(() => setToast(null), 2400);
+      }
+    } catch {
+      setToast({ tone: 'error', message: 'Не удалось сгенерировать ссылку' });
+      setTimeout(() => setToast(null), 2400);
+    } finally {
+      setTelegramLinkBusy(false);
+    }
+  };
+
   if (!task) return null;
 
   const statusBadgeClass = TASK_STATUS_BADGE[draft.status] ?? TASK_STATUS_BADGE.backlog;
@@ -162,9 +187,12 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
         isOpen ? 'opacity-100' : 'opacity-0'
       }`}
       onClick={requestClose}
-      role="presentation"
+      aria-hidden="true"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-modal-title"
         className={`max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl transition-transform duration-200 ${
           isOpen ? 'scale-100' : 'scale-95'
         }`}
@@ -190,6 +218,7 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
             <SectionTitle title="Основные поля" subtitle="Редактируйте задачу без перехода на отдельный экран" />
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Заголовок</label>
             <input
+              id="task-modal-title"
               value={draft.title}
               onChange={(event) => {
                 setDraft((prev) => ({ ...prev, title: event.target.value }));
@@ -440,38 +469,51 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
 
             {/* Telegram-привязка клиента — показываем только если бот настроен */}
             {botUsername && task.clientId && (
-              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
+              <div className="mt-3 rounded-xl border border-[#3C50B4]/20 bg-[#3C50B4]/5 p-3">
                 {task.clientTelegramLinked ? (
-                  <p className="text-xs font-semibold text-sky-700">
+                  <p className="text-xs font-semibold text-[#3C50B4]">
                     ✓ Telegram-чат клиента привязан. Уведомления уйдут туда автоматически.
                   </p>
                 ) : (
                   <>
-                    <p className="text-xs font-semibold text-sky-700">
+                    <p className="text-xs font-semibold text-[#3C50B4]">
                       Telegram клиента не привязан
                     </p>
-                    <p className="mt-1 text-[11px] text-sky-600">
-                      Отправьте клиенту эту ссылку, чтобы он подключил бота:
+                    <p className="mt-1 text-[11px] text-[#3C50B4]/70">
+                      Сгенерируйте одноразовую ссылку и отправьте клиенту:
                     </p>
-                    <p className="mt-1 break-all rounded bg-white px-2 py-1 text-xs text-slate-700">
-                      {`https://t.me/${botUsername}?start=${task.clientId}`}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const link = `https://t.me/${botUsername}?start=${task.clientId}`;
-                        try {
-                          await navigator.clipboard.writeText(link);
-                          setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
-                          setTimeout(() => setToast(null), 2400);
-                        } catch {
-                          setToast({ tone: 'error', message: 'Не удалось скопировать' });
-                        }
-                      }}
-                      className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
-                    >
-                      Копировать Telegram-ссылку
-                    </button>
+                    {telegramLinkData?.link ? (
+                      <>
+                        <p className="mt-2 break-all rounded bg-white px-2 py-1 text-xs text-slate-700 border border-[#3C50B4]/10">
+                          {telegramLinkData.link}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(telegramLinkData.link);
+                              setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
+                              setTimeout(() => setToast(null), 2400);
+                            } catch {
+                              setToast({ tone: 'error', message: 'Не удалось скопировать' });
+                            }
+                          }}
+                          className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
+                        >
+                          Копировать
+                        </button>
+                        <p className="mt-1 text-[10px] text-[#3C50B4]/50">Ссылка действительна 24 часа и может быть использована только один раз</p>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={telegramLinkBusy || !onRequestTelegramLink}
+                        onClick={handleRequestTelegramLink}
+                        className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.primary} disabled:opacity-60 disabled:cursor-wait`}
+                      >
+                        {telegramLinkBusy ? 'Генерация...' : 'Сгенерировать ссылку'}
+                      </button>
+                    )}
                   </>
                 )}
               </div>

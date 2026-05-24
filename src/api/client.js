@@ -72,6 +72,10 @@ export const api = {
   },
   healthMetrics: () => request('/api/admin/health/metrics'),
 
+  // clients
+  requestTelegramLink: (clientId) =>
+    json('POST', `/api/clients/${clientId}/telegram-onboarding`),
+
   // guest / magic-link
   getGuestTask: (token) => request(`/api/guest/${token}`),
   guestUpload: (token, files, comment) => {

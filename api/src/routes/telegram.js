@@ -1,13 +1,24 @@
 // Webhook + общий обработчик апдейтов от Telegram.
 //
-// Обрабатываем только команду /start <clientId> (deep-link от PM-а):
-// клиент жмёт ссылку → бот видит /start <uuid> → сохраняем chat_id и приветствуем.
+// /start <token>: клиент жмёт one-time deep-link от PM-а → привязываем chat_id.
+// Токены живут в client_telegram_onboarding (migration 003); каждый — разовый, TTL 24ч.
+// Старый подход /start <clientId> убран — он позволял угнать уведомления по UUID.
 
 import { Router } from 'express';
-import { pool } from '../db/pool.js';
+import { pool, withTransaction } from '../db/pool.js';
 import * as telegram from '../services/channels/telegram.js';
 
 const SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || 'dev-webhook-secret';
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 /** Обработка одного update от Telegram. Используется и webhook, и polling. */
 export async function handleUpdate(update) {
@@ -28,23 +39,49 @@ export async function handleUpdate(update) {
     );
     return;
   }
-  // param — это clientId (UUID)
-  const result = await pool.query(
-    `UPDATE clients
-        SET telegram_chat_id = $1, telegram_username = $2
-      WHERE id = $3
-      RETURNING company_name`,
-    [chatId, username, param],
-  );
-  if (result.rowCount === 0) {
-    await telegram.send(chatId, 'Не удалось распознать ссылку. Проверьте у менеджера.');
+
+  // Ищем one-time token в таблице onboarding; SELECT FOR UPDATE блокирует гонку двойного использования.
+  let company = null;
+  try {
+    await withTransaction(async (c) => {
+      const tokenRes = await c.query(
+        `SELECT client_id FROM client_telegram_onboarding
+          WHERE token = $1::uuid AND used_at IS NULL AND expires_at > now()
+          FOR UPDATE`,
+        [param],
+      );
+      if (tokenRes.rowCount === 0) return; // company остаётся null → ответим «недействительна»
+
+      const { client_id } = tokenRes.rows[0];
+      const clientRes = await c.query(
+        `UPDATE clients SET telegram_chat_id = $1, telegram_username = $2
+          WHERE id = $3 RETURNING company_name`,
+        [chatId, username, client_id],
+      );
+      await c.query(
+        `UPDATE client_telegram_onboarding SET used_at = now() WHERE token = $1::uuid`,
+        [param],
+      );
+      company = clientRes.rows[0]?.company_name ?? null;
+    });
+  } catch (err) {
+    // $1::uuid выбросит ошибку если param не UUID-формат — это нормально.
+    if (!err.message?.includes('invalid input syntax for type uuid')) {
+      console.error('[telegram] handleUpdate error:', err);
+    }
+  }
+
+  if (!company) {
+    await telegram.send(
+      chatId,
+      'Ссылка недействительна или уже использована. Запросите новую у менеджера.',
+    );
     return;
   }
-  const company = result.rows[0].company_name;
+
   await telegram.send(
     chatId,
-    `Готово! Чат привязан к проекту «${company}». ` +
-      'Здесь будут приходить уведомления по задачам.',
+    `Готово! Чат привязан к проекту <b>«${escapeHtml(company)}»</b>. Здесь будут приходить уведомления по задачам.`,
   );
 }
 

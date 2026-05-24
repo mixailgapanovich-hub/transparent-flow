@@ -20,7 +20,7 @@ export const AUTH_COOKIE = 'tflow_session';
 export const COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: 'lax',
-  secure: false, // в dev — http; в проде поставить true
+  secure: process.env.NODE_ENV === 'production',
   path: '/',
   maxAge: 24 * 60 * 60 * 1000, // 24h
 };

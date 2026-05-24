@@ -11,6 +11,7 @@ import guestRouter from './routes/guest.js';
 import authRouter from './routes/auth.js';
 import telegramRouter, { handleUpdate as handleTelegramUpdate } from './routes/telegram.js';
 import adminRouter from './routes/admin.js';
+import clientsRouter from './routes/clients.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
 import {
   initTelegram,
@@ -82,6 +83,7 @@ app.use('/api/telegram', telegramRouter); // webhook от Telegram-сервер�
 app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/tasks',    requireAuth, tasksRouter);
 app.use('/api/users',    requireAuth, usersRouter);
+app.use('/api/clients',  requireAuth, clientsRouter);
 app.use('/api/admin',    requireAuth, adminRouter); // role=admin проверяется внутри роута
 
 app.use((req, res) => {
@@ -96,8 +98,19 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-/** Стартовая sanity-проверка: ворнинги о кривом конфиге, без падения. */
+/** Стартовая sanity-проверка. В production — падаем на слабом JWT_SECRET. */
 function sanityCheckEnv() {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (isProd) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret || secret === 'dev-secret-change-me-please') {
+      console.error('[startup] FATAL: слабый или отсутствующий JWT_SECRET в production — запуск невозможен');
+      process.exit(1);
+    }
+    console.log('[startup] production mode: JWT_SECRET OK, cookie.secure=true');
+  }
+
   if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_USERNAME) {
     console.warn('[startup] TELEGRAM_BOT_TOKEN задан, но TELEGRAM_BOT_USERNAME пуст — deep-link не сработает');
   }
