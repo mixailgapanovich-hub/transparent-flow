@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, Link2, MessageCircle, Send, Tag, Users, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, Link2, Loader2, MessageCircle, Send, Tag, Users, X } from 'lucide-react';
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
@@ -50,7 +50,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -554,9 +554,11 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
           <button
             type="button"
             onClick={handleSave}
-            className={`${UI_BUTTON_STYLES.primary} px-5 py-2 text-sm font-semibold shadow-lg shadow-blue-100`}
+            disabled={isSaving}
+            className={`${UI_BUTTON_STYLES.primary} px-5 py-2 text-sm font-semibold shadow-lg shadow-blue-100 flex items-center gap-2 transition-opacity ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
-            Сохранить
+            {isSaving && <Loader2 size={15} className="animate-spin" />}
+            {isSaving ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </footer>
       </div>

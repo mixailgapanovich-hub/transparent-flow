@@ -34,7 +34,7 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isSavingTask, setIsSavingTask] = useState(false);
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
@@ -93,35 +93,42 @@ export default function App() {
     setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
   }, []);
 
+  // Временный ID черновика — никогда не попадёт в БД
+  const DRAFT_ID = '__new_task_draft__';
+
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
   const openTask = (taskId) => {
     setSelectedTaskId(taskId);
   };
 
-  const closeTask = () => {
+  const closeTask = useCallback(() => {
+    // Если модалка закрыта без сохранения — выкидываем черновик из списка
+    setTasks((prev) => prev.filter((t) => t.id !== DRAFT_ID));
     setSelectedTaskId(null);
-  };
+  }, []);
 
-  const createTask = useCallback(async () => {
-    if (isCreatingTask) return;
-    setIsCreatingTask(true);
-    try {
-      const created = await api.createTask({
-        projectSlug: 'proj-eco',
-        title: 'Новая задача',
-        description: '',
-        tag: 'Обычная',
-        deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      });
-      setTasks((prev) => [created, ...prev]);
-      setSelectedTaskId(created.id);
-    } catch (err) {
-      showToast('error', 'Не удалось создать задачу: ' + (err.detail || err.message));
-    } finally {
-      setIsCreatingTask(false);
-    }
-  }, [showToast, isCreatingTask]);
+  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save
+  const createTask = useCallback(() => {
+    const draft = {
+      id: DRAFT_ID,
+      projectId: 'proj-eco',
+      title: '',
+      status: 'backlog',
+      tag: 'Обычная',
+      deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      description: '',
+      dependsOn: [],
+      files: [],
+      comments: [],
+      assignees: [],
+      history: [],
+      magicLink: '',
+      isImportant: false,
+    };
+    setTasks((prev) => [draft, ...prev]);
+    setSelectedTaskId(DRAFT_ID);
+  }, []);
 
   const updateTask = async (taskId, patch) => {
     try {
@@ -341,7 +348,6 @@ export default function App() {
       onChangeStatus={updateTaskStatus}
       onTaskClick={openTask}
       onCreateTask={createTask}
-      isCreatingTask={isCreatingTask}
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}
@@ -353,7 +359,6 @@ export default function App() {
       onChangeStatus={updateTaskStatus}
       onTaskClick={openTask}
       onCreateTask={createTask}
-      isCreatingTask={isCreatingTask}
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}
@@ -383,6 +388,7 @@ export default function App() {
       <TaskModal
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
+        isSaving={isSavingTask}
         team={team}
         botUsername={botUsername}
         isAdmin={isAdmin}
@@ -421,6 +427,28 @@ export default function App() {
           acceptContent(selectedTask.id);
         }}
         onSave={async (patch) => {
+          // Черновик — создаём задачу через POST
+          if (selectedTaskId === DRAFT_ID) {
+            setIsSavingTask(true);
+            try {
+              const created = await api.createTask({
+                projectSlug: 'proj-eco',
+                title: patch.title || 'Новая задача',
+                description: patch.description ?? '',
+                tag: patch.tag ?? 'Обычная',
+                deadline: patch.deadline ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              });
+              // Заменяем черновик реальной задачей и закрываем без удаления
+              setTasks((prev) => prev.map((t) => (t.id === DRAFT_ID ? created : t)));
+              setSelectedTaskId(null);
+            } catch (err) {
+              showToast('error', 'Не удалось создать задачу: ' + (err.detail || err.message));
+            } finally {
+              setIsSavingTask(false);
+            }
+            return;
+          }
+          // Существующая задача — обновляем
           if (!selectedTask) {
             showToast('error', 'Не удалось сохранить: задача не найдена.');
             return;
