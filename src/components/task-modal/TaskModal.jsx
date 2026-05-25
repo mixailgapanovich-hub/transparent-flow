@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, Link2, Loader2, MessageCircle, Send, Tag, Users, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, Link2, Loader2, MessageCircle, Send, Tag, Trash2, Users, X } from 'lucide-react';
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
@@ -50,7 +50,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -111,6 +111,21 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
   const availableAssignees = team.filter(
     (candidate) => !(task?.assignees ?? []).some((item) => item.id === candidate.id)
   );
+
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!onDelete || isDeleting) return;
+    const title = task?.title?.trim() || 'эту задачу';
+    if (!window.confirm(`Удалить «${title}»? Это действие необратимо.`)) return;
+    setIsDeleting(true);
+    try {
+      await onDelete();
+      // Удаление само закрывает модалку в App.jsx — здесь ничего не делаем
+    } catch {
+      setIsDeleting(false);
+    }
+  };
 
   const handleSave = () => {
     if (!draft.title.trim()) {
@@ -543,23 +558,42 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
           </aside>
         </div>
 
-        <footer className="flex items-center justify-between md:justify-end gap-3 border-t border-slate-100 bg-slate-50 px-4 md:px-6 py-3 md:py-4 shrink-0">
-          <button
-            type="button"
-            onClick={requestClose}
-            className={`${UI_BUTTON_STYLES.secondary} px-4 py-2 text-sm font-semibold`}
-          >
-            Отмена
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            className={`${UI_BUTTON_STYLES.primary} px-5 py-2 text-sm font-semibold shadow-lg shadow-blue-100 flex items-center gap-2 transition-opacity ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
-          >
-            {isSaving && <Loader2 size={15} className="animate-spin" />}
-            {isSaving ? 'Сохраняем…' : 'Сохранить'}
-          </button>
+        <footer className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 md:px-6 py-3 md:py-4 shrink-0">
+          {/* Удаление — слева, доступно только админу или исполнителю */}
+          <div className="flex">
+            {canDelete && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className={`flex items-center gap-2 px-3 md:px-4 py-2 text-sm font-semibold rounded-xl border border-red-100 text-red-500 hover:bg-red-50 hover:border-red-200 transition-colors active:scale-95 ${isDeleting ? 'opacity-60 cursor-not-allowed' : ''}`}
+                title="Удалить задачу"
+              >
+                {isDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                <span className="hidden md:inline">{isDeleting ? 'Удаляем…' : 'Удалить'}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Отмена + Сохранить — справа */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={requestClose}
+              className={`${UI_BUTTON_STYLES.secondary} px-4 py-2 text-sm font-semibold`}
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className={`${UI_BUTTON_STYLES.primary} px-5 py-2 text-sm font-semibold shadow-lg shadow-blue-100 flex items-center gap-2 transition-opacity ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {isSaving && <Loader2 size={15} className="animate-spin" />}
+              {isSaving ? 'Сохраняем…' : 'Сохранить'}
+            </button>
+          </div>
         </footer>
       </div>
     </div>

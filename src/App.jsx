@@ -130,6 +130,31 @@ export default function App() {
     setSelectedTaskId(DRAFT_ID);
   }, []);
 
+  // Удаляет задачу: оптимистично выкидываем из списка, при ошибке возвращаем.
+  // Сервер сам проверит права (admin / исполнитель) — фронт лишь скрывает кнопку
+  // для остальных ролей, но это не граница безопасности.
+  const deleteTask = async (taskId) => {
+    const before = tasks;
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setSelectedTaskId((prev) => (prev === taskId ? null : prev));
+    try {
+      await api.deleteTask(taskId);
+      showToast('success', 'Задача удалена');
+    } catch (err) {
+      setTasks(before);
+      showToast('error', 'Не удалось удалить: ' + (err.detail || err.message));
+    }
+  };
+
+  // Проверка прав на удаление конкретной задачи на стороне UI.
+  // Серверная проверка — авторитетная; здесь только чтобы скрыть кнопку у тех, кому нельзя.
+  const canDeleteTask = (task) => {
+    if (!task || !currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    if (currentUser.role !== 'pm') return false;
+    return (task.assignees ?? []).some((a) => a.id === currentUser.id);
+  };
+
   const updateTask = async (taskId, patch) => {
     try {
       const updated = await api.updateTask(taskId, patch);
@@ -389,6 +414,11 @@ export default function App() {
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
         isSaving={isSavingTask}
+        canDelete={canDeleteTask(selectedTask) && selectedTaskId !== DRAFT_ID}
+        onDelete={async () => {
+          if (!selectedTask || selectedTaskId === DRAFT_ID) return;
+          await deleteTask(selectedTask.id);
+        }}
         team={team}
         botUsername={botUsername}
         isAdmin={isAdmin}

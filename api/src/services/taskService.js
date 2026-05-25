@@ -349,7 +349,26 @@ export async function createTask(input, { actorId = null } = {}) {
   return getTaskById(id);
 }
 
-export async function deleteTask(taskId) {
+export async function deleteTask(taskId, { actor } = {}) {
+  // Ролевая модель удаления:
+  // - admin: удаляет любую задачу
+  // - pm: удаляет только если он в исполнителях задачи
+  // - остальные роли (например, будущий viewer/observer): запрещено
+  if (!actor) throw new HttpError(401, 'Authentication required');
+
+  if (actor.role !== 'admin') {
+    if (actor.role !== 'pm') {
+      throw new HttpError(403, 'У вас нет прав на удаление задач');
+    }
+    const { rows } = await pool.query(
+      'SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2 LIMIT 1',
+      [taskId, actor.id],
+    );
+    if (rows.length === 0) {
+      throw new HttpError(403, 'Удалять задачу может только администратор или её исполнитель');
+    }
+  }
+
   const res = await pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
   if (res.rowCount === 0) throw new HttpError(404, 'Task not found');
 }
