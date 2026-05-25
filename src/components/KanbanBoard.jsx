@@ -33,7 +33,7 @@ const TAG_LEFT_BORDER = {
   'Обычная':     'border-l-slate-300',
 };
 
-const MobileTaskCard = ({ task, onClick, showProjectBadge, isRemoving = false }) => {
+const MobileTaskCard = ({ task, onClick, showProjectBadge, isRemoving = false, shouldAnimateEntry = false }) => {
   const isOverdue = useMemo(() => new Date(task.deadline) < new Date(), [task.deadline]);
   const isUrgent = useMemo(() => {
     const diff = new Date(task.deadline) - new Date();
@@ -42,14 +42,15 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge, isRemoving = false })
   const projectStyle = showProjectBadge && task.projectId ? PROJECT_BADGE_STYLES[task.projectId] : null;
   const borderColor = TAG_LEFT_BORDER[task.tag] ?? 'border-l-slate-300';
 
-  // Двух-фазное состояние: при mount стартуем из opacity-0, через setTimeout(0)
-  // выставляем mounted=true. Браузер успевает отрисовать начальный кадр между
-  // mount и flip — поэтому транзишн честно проигрывается.
-  const [mounted, setMounted] = useState(false);
+  // Двух-фазный mount только если карточка ПОМЕЧЕНА для анимации входа
+  // (создана через POST). Иначе mounted=true сразу — карточка не моргает
+  // при drag-n-drop между колонками (remount React-ом).
+  const [mounted, setMounted] = useState(!shouldAnimateEntry);
   useEffect(() => {
+    if (!shouldAnimateEntry) return undefined;
     const id = setTimeout(() => setMounted(true), 0);
     return () => clearTimeout(id);
-  }, []);
+  }, [shouldAnimateEntry]);
 
   const cardStyle = {
     transition: 'opacity 250ms cubic-bezier(0.16, 1, 0.3, 1), transform 250ms cubic-bezier(0.16, 1, 0.3, 1), filter 250ms ease',
@@ -102,7 +103,7 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge, isRemoving = false })
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge, isRemoving = false, skipEnterAnimation = false }) => {
+const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge, isRemoving = false, shouldAnimateEntry = false }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: isRemoving });
 
   const isUrgent = useMemo(() => {
@@ -113,15 +114,15 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
 
   const projectStyle = showProjectBadge && task.projectId ? PROJECT_BADGE_STYLES[task.projectId] : null;
 
-  // Двух-фазное состояние для enter-анимации: рендер #1 — opacity 0 + offset,
-  // через 1 тик (setTimeout 0) — mounted=true, и transition проигрывается.
-  // skipEnterAnimation=true (например, в DragOverlay) — сразу mounted.
-  const [mounted, setMounted] = useState(skipEnterAnimation);
+  // Enter-анимация — только если карточка ЯВНО помечена для неё (свежесозданная).
+  // Иначе mounted=true сразу: drag-n-drop между колонками вызывает remount,
+  // и opacity-0 ради enter-анимации делал карточки невидимыми.
+  const [mounted, setMounted] = useState(!shouldAnimateEntry);
   useEffect(() => {
-    if (skipEnterAnimation) return undefined;
+    if (!shouldAnimateEntry) return undefined;
     const id = setTimeout(() => setMounted(true), 0);
     return () => clearTimeout(id);
-  }, [skipEnterAnimation]);
+  }, [shouldAnimateEntry]);
 
   // Комбинируем transform от dnd-kit и наш entry/exit transform.
   // При drag — dnd рулит, наш transform нулевой.
@@ -199,7 +200,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
   );
 };
 
-const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, removingTaskIds }) => {
+const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, removingTaskIds, recentlyAddedTaskIds }) => {
   const { setNodeRef } = useDroppable({ id: column.id });
   const isWaiting = column.id === 'waiting';
   const isClientUploaded = column.id === 'client-uploaded';
@@ -229,6 +230,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, removing
               isClientUploadedCol={isClientUploaded}
               showProjectBadge={showProjectBadge}
               isRemoving={removingTaskIds?.has(task.id)}
+              shouldAnimateEntry={recentlyAddedTaskIds?.has(task.id)}
             />
           ))}
         </SortableContext>
@@ -297,6 +299,7 @@ export default function KanbanBoard({
   projectFilterLabel = null,
   onClearProjectFilter = null,
   removingTaskIds = new Set(),
+  recentlyAddedTaskIds = new Set(),
 }) {
   const columns = propColumns ?? COLUMNS;
   const [boardView, setBoardView] = useState('kanban');
@@ -443,6 +446,7 @@ export default function KanbanBoard({
                   onClick={onTaskClick}
                   showProjectBadge={showProjectBadge}
                   isRemoving={removingTaskIds?.has(task.id)}
+                  shouldAnimateEntry={recentlyAddedTaskIds?.has(task.id)}
                 />
               ))
             )}
@@ -543,6 +547,7 @@ export default function KanbanBoard({
                   onTaskClick={onTaskClick}
                   showProjectBadge={showProjectBadge}
                   removingTaskIds={removingTaskIds}
+                  recentlyAddedTaskIds={recentlyAddedTaskIds}
                 />
               ))}
             </div>
@@ -550,7 +555,7 @@ export default function KanbanBoard({
           <DragOverlay>
             {activeId && activeTask ? (
               <div className="scale-[1.02] rotate-1">
-                <TaskCard task={activeTask} onClick={() => {}} showProjectBadge={showProjectBadge} skipEnterAnimation />
+                <TaskCard task={activeTask} onClick={() => {}} showProjectBadge={showProjectBadge} />
               </div>
             ) : null}
           </DragOverlay>

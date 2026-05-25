@@ -38,6 +38,10 @@ export default function App() {
   const [isAcceptingContent, setIsAcceptingContent] = useState(false);
   // Set<taskId> — задачи в анимации удаления (fade-out перед фактическим удалением из tasks)
   const [removingTaskIds, setRemovingTaskIds] = useState(() => new Set());
+  // Set<taskId> — задачи, ТОЛЬКО ЧТО созданные через POST. Получают enter-анимацию.
+  // Остальные карточки (загруженные с сервера, перетащенные между колонками)
+  // mount-ятся мгновенно, чтобы drag-n-drop не моргал.
+  const [recentlyAddedTaskIds, setRecentlyAddedTaskIds] = useState(() => new Set());
   // 'logged-out' | null — флэш для LoginScreen после ручного выхода
   const [authFlash, setAuthFlash] = useState(null);
   const [guestToken, setGuestToken] = useState(null);
@@ -418,6 +422,7 @@ export default function App() {
       activeId={activeId}
       setActiveId={setActiveId}
       removingTaskIds={removingTaskIds}
+      recentlyAddedTaskIds={recentlyAddedTaskIds}
     />
   ) : activeTab === 'tasks' ? (
     <KanbanBoard
@@ -430,6 +435,7 @@ export default function App() {
       activeId={activeId}
       setActiveId={setActiveId}
       removingTaskIds={removingTaskIds}
+      recentlyAddedTaskIds={recentlyAddedTaskIds}
       showProjectBadge
       showColumnFilter
       projectFilterLabel={projectFilter ? (PROJECT_BADGE_STYLES[projectFilter]?.label ?? projectFilter) : null}
@@ -514,6 +520,19 @@ export default function App() {
                 deadline: patch.deadline ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
               });
               setTasks((prev) => [created, ...prev]);
+              // Помечаем для enter-анимации, через 500мс снимаем флаг
+              setRecentlyAddedTaskIds((prev) => {
+                const next = new Set(prev);
+                next.add(created.id);
+                return next;
+              });
+              setTimeout(() => {
+                setRecentlyAddedTaskIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(created.id);
+                  return next;
+                });
+              }, 500);
               setDraftTask(null);
               setSelectedTaskId(null);
             } catch (err) {
