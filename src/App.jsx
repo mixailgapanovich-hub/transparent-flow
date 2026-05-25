@@ -141,13 +141,13 @@ export default function App() {
     setSelectedTaskId(DRAFT_ID);
   }, []);
 
-  // Удаляет задачу с fade-out анимацией (~500мс).
+  // Удаляет задачу с fade-out анимацией (~250мс).
   // 1) Помечаем как "removing" — карточка плавно уезжает и блёкнет.
   // 2) Параллельно шлём DELETE.
-  // 3) После успеха + 500мс — реально убираем из tasks.
+  // 3) После успеха + 250мс — реально убираем из tasks.
   // При ошибке — снимаем флаг (карточка возвращается) и показываем toast.
   // Сервер сам проверит права — фронт лишь скрывает кнопку, не security boundary.
-  const REMOVE_ANIM_MS = 500;
+  const REMOVE_ANIM_MS = 250;
   const deleteTask = async (taskId) => {
     setRemovingTaskIds((prev) => {
       const next = new Set(prev);

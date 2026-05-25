@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext, closestCenter, pointerWithin, KeyboardSensor, PointerSensor,
   useSensor, useSensors, DragOverlay, useDroppable
@@ -42,19 +42,32 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge, isRemoving = false })
   const projectStyle = showProjectBadge && task.projectId ? PROJECT_BADGE_STYLES[task.projectId] : null;
   const borderColor = TAG_LEFT_BORDER[task.tag] ?? 'border-l-slate-300';
 
+  // Двух-фазное состояние: при mount стартуем из opacity-0, через setTimeout(0)
+  // выставляем mounted=true. Браузер успевает отрисовать начальный кадр между
+  // mount и flip — поэтому транзишн честно проигрывается.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(id);
+  }, []);
+
+  const cardStyle = {
+    transition: 'opacity 250ms cubic-bezier(0.16, 1, 0.3, 1), transform 250ms cubic-bezier(0.16, 1, 0.3, 1), filter 250ms ease',
+    opacity: !mounted || isRemoving ? 0 : 1,
+    transform: isRemoving
+      ? 'translateX(48px) scale(0.92)'
+      : mounted
+        ? 'translateY(0) scale(1)'
+        : 'translateY(-8px) scale(0.98)',
+    filter: isRemoving ? 'blur(2px)' : 'none',
+    pointerEvents: isRemoving ? 'none' : 'auto',
+  };
+
   return (
     <div
       onClick={() => !isRemoving && onClick(task.id)}
-      style={{
-        transitionTimingFunction: isRemoving
-          ? 'cubic-bezier(0.4, 0, 1, 1)'   // ease-in: «выталкиваем» наружу
-          : 'cubic-bezier(0.16, 1, 0.3, 1)' // ease-out-expo: мягкий приход
-      }}
-      className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-4 border-l-4 ${borderColor}
-        transition-all duration-500
-        ${isRemoving
-          ? 'opacity-0 translate-x-16 scale-90 blur-[1px] pointer-events-none'
-          : 'opacity-100 translate-x-0 scale-100 active:scale-[0.98] cursor-pointer animate-in fade-in slide-in-from-top-4 duration-500'}`}
+      style={cardStyle}
+      className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-4 border-l-4 ${borderColor} active:scale-[0.98] cursor-pointer`}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <Badge type={task.tag} />
@@ -89,14 +102,8 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge, isRemoving = false })
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge, isRemoving = false }) => {
+const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge, isRemoving = false, skipEnterAnimation = false }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: isRemoving });
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    transition,
-    opacity: isDragging ? 0.65 : undefined,
-    boxShadow: isDragging ? '0 16px 32px rgba(15, 23, 42, 0.16)' : undefined,
-  };
 
   const isUrgent = useMemo(() => {
     const diff = new Date(task.deadline) - new Date();
@@ -106,16 +113,42 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
 
   const projectStyle = showProjectBadge && task.projectId ? PROJECT_BADGE_STYLES[task.projectId] : null;
 
+  // Двух-фазное состояние для enter-анимации: рендер #1 — opacity 0 + offset,
+  // через 1 тик (setTimeout 0) — mounted=true, и transition проигрывается.
+  // skipEnterAnimation=true (например, в DragOverlay) — сразу mounted.
+  const [mounted, setMounted] = useState(skipEnterAnimation);
+  useEffect(() => {
+    if (skipEnterAnimation) return undefined;
+    const id = setTimeout(() => setMounted(true), 0);
+    return () => clearTimeout(id);
+  }, [skipEnterAnimation]);
+
+  // Комбинируем transform от dnd-kit и наш entry/exit transform.
+  // При drag — dnd рулит, наш transform нулевой.
+  // При remove — dnd-kit отключён (disabled), наш transform уносит карточку вправо.
+  const dndTransform = CSS.Translate.toString(transform);
+  const lifecycleTransform = isRemoving
+    ? 'translateX(56px) scale(0.9)'
+    : mounted
+      ? ''
+      : 'translateY(-8px) scale(0.98)';
+  const combinedTransform = [dndTransform, lifecycleTransform].filter(Boolean).join(' ') || undefined;
+
+  const style = {
+    transform: combinedTransform,
+    transition: isDragging
+      ? transition
+      : 'opacity 250ms cubic-bezier(0.16, 1, 0.3, 1), transform 250ms cubic-bezier(0.16, 1, 0.3, 1), filter 250ms ease',
+    opacity: isDragging ? 0.65 : (!mounted || isRemoving ? 0 : 1),
+    filter: isRemoving ? 'blur(2px)' : undefined,
+    boxShadow: isDragging ? '0 16px 32px rgba(15, 23, 42, 0.16)' : undefined,
+    pointerEvents: isRemoving ? 'none' : undefined,
+  };
+
   return (
     <div
       ref={setNodeRef}
-      style={{
-        ...style,
-        transitionTimingFunction: isRemoving
-          ? 'cubic-bezier(0.4, 0, 1, 1)'
-          : 'cubic-bezier(0.16, 1, 0.3, 1)',
-        transitionDuration: isDragging ? undefined : '500ms',
-      }}
+      style={style}
       {...attributes} {...listeners}
       onClick={() => !isRemoving && onClick(task.id)}
       onKeyDown={(event) => {
@@ -127,8 +160,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
       tabIndex={isRemoving ? -1 : 0}
       role="button"
       aria-label={`Открыть задачу: ${task.title}`}
-      className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3
-        ${isRemoving ? 'opacity-0 translate-x-16 scale-90 blur-[1px] pointer-events-none' : 'opacity-100 animate-in fade-in slide-in-from-top-4 duration-500'}
+      className={`group relative p-4 rounded-xl border cursor-grab mb-3
         ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
@@ -518,7 +550,7 @@ export default function KanbanBoard({
           <DragOverlay>
             {activeId && activeTask ? (
               <div className="scale-[1.02] rotate-1">
-                <TaskCard task={activeTask} onClick={() => {}} showProjectBadge={showProjectBadge} />
+                <TaskCard task={activeTask} onClick={() => {}} showProjectBadge={showProjectBadge} skipEnterAnimation />
               </div>
             ) : null}
           </DragOverlay>
