@@ -559,15 +559,23 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 md:px-6 py-3 md:py-4 shrink-0">
-          {/* Удаление — слева, доступно только админу или исполнителю */}
+          {/* Удаление — слева. Видна всегда (для существующих задач), но disabled
+              если у пользователя нет прав. Tooltip объясняет почему. */}
           <div className="flex">
-            {canDelete && (
+            {onDelete && task?.id && (
               <button
                 type="button"
                 onClick={handleDelete}
-                disabled={isDeleting}
-                className={`flex items-center gap-2 px-3 md:px-4 py-2 text-sm font-semibold rounded-xl border border-red-100 text-red-500 hover:bg-red-50 hover:border-red-200 transition-colors active:scale-95 ${isDeleting ? 'opacity-60 cursor-not-allowed' : ''}`}
-                title="Удалить задачу"
+                disabled={isDeleting || !canDelete}
+                className={`flex items-center gap-2 px-3 md:px-4 py-2 text-sm font-semibold rounded-xl border transition-colors active:scale-95
+                  ${canDelete
+                    ? 'border-red-100 text-red-500 hover:bg-red-50 hover:border-red-200'
+                    : 'border-slate-100 text-slate-300 cursor-not-allowed'
+                  }
+                  ${isDeleting ? 'opacity-60 cursor-not-allowed' : ''}`}
+                title={canDelete
+                  ? 'Удалить задачу'
+                  : 'Удалять задачу может только администратор или её исполнитель'}
               >
                 {isDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                 <span className="hidden md:inline">{isDeleting ? 'Удаляем…' : 'Удалить'}</span>
