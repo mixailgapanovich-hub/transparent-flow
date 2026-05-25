@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+/* Safe-area support for iPhone notch / Dynamic Island */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

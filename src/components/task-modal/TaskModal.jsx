@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Link2, MessageCircle, Send, Tag, Users, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, Link2, Loader2, MessageCircle, Send, Tag, Trash2, Users, X } from 'lucide-react';
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
@@ -50,7 +50,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], onClose, onSave, onRequestClient, onSendComment, onAddAssignee, onOpenGuestView, isAdmin = false }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -66,6 +66,8 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
   const [isOpen, setIsOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [isRequestLoading, setIsRequestLoading] = useState(false);
+  const [telegramLinkData, setTelegramLinkData] = useState(null);
+  const [telegramLinkBusy, setTelegramLinkBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const commentsRef = useRef(null);
 
@@ -110,6 +112,21 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
     (candidate) => !(task?.assignees ?? []).some((item) => item.id === candidate.id)
   );
 
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!onDelete || isDeleting) return;
+    const title = task?.title?.trim() || 'эту задачу';
+    if (!window.confirm(`Удалить «${title}»? Это действие необратимо.`)) return;
+    setIsDeleting(true);
+    try {
+      await onDelete();
+      // Удаление само закрывает модалку в App.jsx — здесь ничего не делаем
+    } catch {
+      setIsDeleting(false);
+    }
+  };
+
   const handleSave = () => {
     if (!draft.title.trim()) {
       setTitleError('Заголовок обязателен.');
@@ -151,45 +168,92 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
     commentsRef.current.scrollTop = commentsRef.current.scrollHeight;
   }, [task?.comments]);
 
+  const handleRequestTelegramLink = async () => {
+    if (!onRequestTelegramLink) return;
+    setTelegramLinkBusy(true);
+    try {
+      const data = await onRequestTelegramLink();
+      setTelegramLinkData(data);
+      if (data?.link) {
+        try {
+          await navigator.clipboard.writeText(data.link);
+          setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
+        } catch {
+          setToast({ tone: 'info', message: 'Ссылка сгенерирована — скопируйте вручную' });
+        }
+        setTimeout(() => setToast(null), 2400);
+      }
+    } catch {
+      setToast({ tone: 'error', message: 'Не удалось сгенерировать ссылку' });
+      setTimeout(() => setToast(null), 2400);
+    } finally {
+      setTelegramLinkBusy(false);
+    }
+  };
+
   if (!task) return null;
 
   const statusBadgeClass = TASK_STATUS_BADGE[draft.status] ?? TASK_STATUS_BADGE.backlog;
   const tagBadgeClass = TASK_TAG_BADGE[draft.tag] ?? TASK_TAG_BADGE.Обычная;
 
   return (
+    /* Backdrop: на десктопе — затемнение + центрирование; на мобилке — прозрачный */
     <div
-      className={`fixed inset-0 z-40 flex items-center justify-center bg-slate-900/30 p-4 transition-opacity duration-200 ${
-        isOpen ? 'opacity-100' : 'opacity-0'
-      }`}
+      className={`fixed inset-0 z-[60] transition-opacity duration-200
+        md:flex md:items-center md:justify-center md:bg-slate-900/30 md:p-4
+        ${isOpen ? 'opacity-100' : 'opacity-0'}`}
       onClick={requestClose}
-      role="presentation"
+      aria-hidden="true"
     >
       <div
-        className={`max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl transition-transform duration-200 ${
-          isOpen ? 'scale-100' : 'scale-95'
-        }`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-modal-title"
+        className={`flex flex-col bg-white
+          w-full h-full
+          md:max-h-[90vh] md:max-w-6xl md:rounded-3xl md:border md:border-slate-200 md:shadow-2xl md:h-auto
+          transition-all duration-200
+          ${isOpen ? 'opacity-100 translate-y-0 md:scale-100' : 'opacity-0 translate-y-4 md:scale-95'}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className={`rounded-md px-2 py-1 text-xs font-bold ${statusBadgeClass}`}>Статус: {TASK_STATUS_LABEL[draft.status]}</span>
-            <span className={`rounded-md px-2 py-1 text-xs font-bold ${tagBadgeClass}`}>Приоритет: {draft.tag}</span>
-          </div>
+        <header className="flex items-center border-b border-slate-100 px-4 md:px-6 py-3 md:py-4 gap-3 shrink-0">
+          {/* Кнопка назад — только на мобилке */}
           <button
             type="button"
             onClick={requestClose}
-            className={`p-2 ${UI_BUTTON_STYLES.ghost}`}
+            className="md:hidden p-1 -ml-1 text-slate-400 hover:text-slate-600 transition-colors"
+            aria-label="Назад"
+          >
+            <ChevronLeft size={22} />
+          </button>
+
+          {/* Бейджи статуса и приоритета */}
+          <div className="flex items-center gap-2 flex-1 flex-wrap">
+            <span className={`rounded-md px-2 py-1 text-xs font-bold ${statusBadgeClass}`}>
+              {TASK_STATUS_LABEL[draft.status]}
+            </span>
+            <span className={`rounded-md px-2 py-1 text-xs font-bold ${tagBadgeClass}`}>
+              {draft.tag}
+            </span>
+          </div>
+
+          {/* Кнопка закрыть — только на десктопе */}
+          <button
+            type="button"
+            onClick={requestClose}
+            className={`hidden md:flex p-2 ${UI_BUTTON_STYLES.ghost}`}
             aria-label="Закрыть модальное окно"
           >
             <X size={18} />
           </button>
         </header>
 
-        <div className="grid max-h-[calc(90vh-140px)] grid-cols-1 overflow-y-auto md:grid-cols-10">
-          <section className="md:col-span-7 border-r border-slate-100 p-6">
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-10 overflow-y-auto min-h-0">
+          <section className="md:col-span-7 md:border-r border-slate-100 p-4 md:p-6">
             <SectionTitle title="Основные поля" subtitle="Редактируйте задачу без перехода на отдельный экран" />
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Заголовок</label>
             <input
+              id="task-modal-title"
               value={draft.title}
               onChange={(event) => {
                 setDraft((prev) => ({ ...prev, title: event.target.value }));
@@ -233,8 +297,15 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
                 )}
               </div>
               {draft.status === 'client-uploaded' && (
-                <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700">
-                  Клиент загрузил материалы — можно ответить или продолжить работу.
+                <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-3 text-xs font-semibold text-teal-700">
+                  <p>Клиент загрузил материалы. Проверьте их и зафиксируйте приём.</p>
+                  <button
+                    type="button"
+                    onClick={() => onAcceptContent?.()}
+                    className="mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700"
+                  >
+                    Принять контент (отправить акт клиенту)
+                  </button>
                 </div>
               )}
               <div className="mt-3 flex items-center gap-2">
@@ -306,7 +377,7 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
             </div>
           </section>
 
-          <aside className="md:col-span-3 p-6">
+          <aside className="md:col-span-3 p-4 md:p-6 border-t md:border-t-0 border-slate-100">
             <SectionTitle title="Метаданные" subtitle="Управление статусом и атрибутами" />
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Статус</label>
             <select
@@ -431,25 +502,106 @@ export default function TaskModal({ task, team = [], onClose, onSave, onRequestC
               </div>
             ) : null}
 
+            {/* Telegram-привязка клиента — показываем только если бот настроен */}
+            {botUsername && task.clientId && (
+              <div className="mt-3 rounded-xl border border-[#3C50B4]/20 bg-[#3C50B4]/5 p-3">
+                {task.clientTelegramLinked ? (
+                  <p className="text-xs font-semibold text-[#3C50B4]">
+                    ✓ Telegram-чат клиента привязан. Уведомления уйдут туда автоматически.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold text-[#3C50B4]">
+                      Telegram клиента не привязан
+                    </p>
+                    <p className="mt-1 text-[11px] text-[#3C50B4]/70">
+                      Сгенерируйте одноразовую ссылку и отправьте клиенту:
+                    </p>
+                    {telegramLinkData?.link ? (
+                      <>
+                        <p className="mt-2 break-all rounded bg-white px-2 py-1 text-xs text-slate-700 border border-[#3C50B4]/10">
+                          {telegramLinkData.link}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(telegramLinkData.link);
+                              setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
+                              setTimeout(() => setToast(null), 2400);
+                            } catch {
+                              setToast({ tone: 'error', message: 'Не удалось скопировать' });
+                            }
+                          }}
+                          className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
+                        >
+                          Копировать
+                        </button>
+                        <p className="mt-1 text-[10px] text-[#3C50B4]/50">Ссылка действительна 24 часа и может быть использована только один раз</p>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={telegramLinkBusy || !onRequestTelegramLink}
+                        onClick={handleRequestTelegramLink}
+                        className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.primary} disabled:opacity-60 disabled:cursor-wait`}
+                      >
+                        {telegramLinkBusy ? 'Генерация...' : 'Сгенерировать ссылку'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             {toast ? <div className="mt-3"><Toast tone={toast.tone} message={toast.message} /></div> : null}
           </aside>
         </div>
 
-        <footer className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-          <button
-            type="button"
-            onClick={requestClose}
-            className={`${UI_BUTTON_STYLES.secondary} px-4 py-2 text-sm font-semibold`}
-          >
-            Отмена
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className={`${UI_BUTTON_STYLES.primary} px-5 py-2 text-sm font-semibold shadow-lg shadow-blue-100`}
-          >
-            Сохранить
-          </button>
+        <footer className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 md:px-6 py-3 md:py-4 shrink-0">
+          {/* Удаление — слева. Видна всегда (для существующих задач), но disabled
+              если у пользователя нет прав. Tooltip объясняет почему. */}
+          <div className="flex">
+            {onDelete && task?.id && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting || !canDelete}
+                className={`flex items-center gap-2 px-3 md:px-4 py-2 text-sm font-semibold rounded-xl border transition-colors active:scale-95
+                  ${canDelete
+                    ? 'border-red-100 text-red-500 hover:bg-red-50 hover:border-red-200'
+                    : 'border-slate-100 text-slate-300 cursor-not-allowed'
+                  }
+                  ${isDeleting ? 'opacity-60 cursor-not-allowed' : ''}`}
+                title={canDelete
+                  ? 'Удалить задачу'
+                  : 'Удалять задачу может только администратор или её исполнитель'}
+              >
+                {isDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                <span className="hidden md:inline">{isDeleting ? 'Удаляем…' : 'Удалить'}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Отмена + Сохранить — справа */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={requestClose}
+              className={`${UI_BUTTON_STYLES.secondary} px-4 py-2 text-sm font-semibold`}
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className={`${UI_BUTTON_STYLES.primary} px-5 py-2 text-sm font-semibold shadow-lg shadow-blue-100 flex items-center gap-2 transition-opacity ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {isSaving && <Loader2 size={15} className="animate-spin" />}
+              {isSaving ? 'Сохраняем…' : 'Сохранить'}
+            </button>
+          </div>
         </footer>
       </div>
     </div>

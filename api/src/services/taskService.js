@@ -93,6 +93,9 @@ function buildTaskDto(taskRow, related) {
     history,
     magicLink,
     isImportant: taskRow.tag === 'Ключевая',
+    // Привязка клиента — для UI «Подключить Telegram»
+    clientId: taskRow.client_id ?? null,
+    clientTelegramLinked: Boolean(taskRow.client_telegram_chat_id),
   };
 }
 
@@ -162,9 +165,12 @@ export async function listTasks({ projectSlug } = {}) {
   const tasksRes = await pool.query(
     `SELECT t.id, t.title, t.description, t.status, t.tag, t.deadline,
             t.magic_link_token, t.created_at, t.updated_at,
-            p.slug AS project_slug
+            p.slug AS project_slug,
+            c.id AS client_id,
+            c.telegram_chat_id AS client_telegram_chat_id
      FROM tasks t
      JOIN projects p ON p.id = t.project_id
+     JOIN clients  c ON c.id = p.client_id
      ${where}
      ORDER BY t.created_at`,
     params,
@@ -181,9 +187,12 @@ export async function getTaskById(id) {
   const tasksRes = await pool.query(
     `SELECT t.id, t.title, t.description, t.status, t.tag, t.deadline,
             t.magic_link_token, t.created_at, t.updated_at,
-            p.slug AS project_slug
+            p.slug AS project_slug,
+            c.id AS client_id,
+            c.telegram_chat_id AS client_telegram_chat_id
      FROM tasks t
      JOIN projects p ON p.id = t.project_id
+     JOIN clients  c ON c.id = p.client_id
      WHERE t.id = $1`,
     [id],
   );
@@ -208,6 +217,7 @@ async function logHistory(client, taskId, text, actorType = 'pm', actorId = null
 
 /** Смена статуса задачи. Валидируется FSM. */
 export async function transitionStatus(taskId, toStatus, { isAdmin = false, actorId = null } = {}) {
+  let didAcceptContent = false;
   const id = await withTransaction(async (c) => {
     const cur = await c.query('SELECT status FROM tasks WHERE id = $1 FOR UPDATE', [taskId]);
     if (cur.rows.length === 0) throw new HttpError(404, 'Task not found');
@@ -231,10 +241,38 @@ export async function transitionStatus(taskId, toStatus, { isAdmin = false, acto
         [taskId, actorId, JSON.stringify({ from: fromStatus, to: toStatus })],
       );
       await logHistory(c, taskId, `Статус изменён: ${toStatus}`, 'pm', actorId);
+
+      // Глава 4.2 п.1: момент юридической передачи контента — переход
+      // client-uploaded → done. Сам факт принятия фиксируем здесь же,
+      // отправку email-акта откладываем на пост-COMMIT (см. ниже).
+      if (fromStatus === 'client-uploaded' && toStatus === 'done') {
+        await c.query(
+          `INSERT INTO task_events (task_id, actor_type, actor_id, event_type, payload)
+           VALUES ($1, 'pm', $2, 'content_accepted', $3::jsonb)`,
+          [taskId, actorId, JSON.stringify({ acceptedAt: new Date().toISOString() })],
+        );
+        didAcceptContent = true;
+      }
     }
 
     return taskId;
   });
+
+  // ВАЖНО: отправка email — после COMMIT, чтобы не держать транзакцию открытой
+  // на время сетевого запроса и чтобы клиент получил письмо только если статус
+  // действительно зафиксирован в БД. Импорт здесь (динамический), чтобы избежать
+  // циклической зависимости между сервисами.
+  if (didAcceptContent) {
+    try {
+      const { sendVerificationEmail } = await import('./notificationService.js');
+      await sendVerificationEmail(id);
+    } catch (err) {
+      // Не валим основной запрос: PM уже принял контент, письмо можно ретригернуть
+      // вручную через UI (verification_email_failed event и кнопка «Переотправить акт»).
+      console.error(`[task] verification email failed for ${id}:`, err.message);
+    }
+  }
+
   return getTaskById(id);
 }
 
@@ -311,7 +349,26 @@ export async function createTask(input, { actorId = null } = {}) {
   return getTaskById(id);
 }
 
-export async function deleteTask(taskId) {
+export async function deleteTask(taskId, { actor } = {}) {
+  // Ролевая модель удаления:
+  // - admin: удаляет любую задачу
+  // - pm: удаляет только если он в исполнителях задачи
+  // - остальные роли (например, будущий viewer/observer): запрещено
+  if (!actor) throw new HttpError(401, 'Authentication required');
+
+  if (actor.role !== 'admin') {
+    if (actor.role !== 'pm') {
+      throw new HttpError(403, 'У вас нет прав на удаление задач');
+    }
+    const { rows } = await pool.query(
+      'SELECT 1 FROM task_assignees WHERE task_id = $1 AND user_id = $2 LIMIT 1',
+      [taskId, actor.id],
+    );
+    if (rows.length === 0) {
+      throw new HttpError(403, 'Удалять задачу может только администратор или её исполнитель');
+    }
+  }
+
   const res = await pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
   if (res.rowCount === 0) throw new HttpError(404, 'Task not found');
 }
@@ -370,7 +427,9 @@ export async function requestClientContent(taskId, { actorId = null } = {}) {
     }
 
     const token = randomUUID();
-    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // +72h
+    // 7 дней — чтобы покрыть весь жизненный цикл каскада уведомлений (5 раб. дней)
+    // и оставить буфер на выходные.
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await c.query(
       `UPDATE tasks

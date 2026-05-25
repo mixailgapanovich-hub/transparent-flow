@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, LogOut } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import Sidebar from './components/Sidebar';
@@ -9,10 +9,12 @@ import GuestUploadPage from './components/GuestUploadPage';
 import LoginScreen from './components/LoginScreen';
 import { api } from './api/client';
 import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
+import { useToastState, ToastContainer } from './components/Toast';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
 import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
+import BottomNav from './components/BottomNav';
 
 export default function App() {
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
@@ -22,11 +24,17 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState(null);
+  const [projects, setProjects] = useState([]);
   const [team, setTeam] = useState([]);
+  const [botUsername, setBotUsername] = useState(null);
   const [activeId, setActiveId] = useState(null);
+  // pendingByTaskId: Map<id, lastRequestedStatus> — защита от race в optimistic updates
+  const pendingByTaskId = useRef(new Map());
+  const { toasts, showToast } = useToastState();
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isSavingTask, setIsSavingTask] = useState(false);
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
@@ -66,6 +74,12 @@ export default function App() {
     api.listUsers()
       .then((data) => { if (!cancelled) setTeam(data); })
       .catch((err) => console.error('[App] не удалось загрузить команду:', err));
+    api.listProjects()
+      .then((data) => { if (!cancelled) setProjects(data); })
+      .catch((err) => console.error('[App] не удалось загрузить проекты:', err));
+    api.botInfo()
+      .then((info) => { if (!cancelled) setBotUsername(info?.configured ? info.botUsername : null); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [currentUser]);
 
@@ -79,38 +93,74 @@ export default function App() {
     setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
   }, []);
 
+  // Временный ID черновика — никогда не попадёт в БД
+  const DRAFT_ID = '__new_task_draft__';
+
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
   const openTask = (taskId) => {
     setSelectedTaskId(taskId);
   };
 
-  const closeTask = () => {
+  const closeTask = useCallback(() => {
+    // Если модалка закрыта без сохранения — выкидываем черновик из списка
+    setTasks((prev) => prev.filter((t) => t.id !== DRAFT_ID));
     setSelectedTaskId(null);
+  }, []);
+
+  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save
+  const createTask = useCallback(() => {
+    const draft = {
+      id: DRAFT_ID,
+      projectId: 'proj-eco',
+      title: '',
+      status: 'backlog',
+      tag: 'Обычная',
+      deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      description: '',
+      dependsOn: [],
+      files: [],
+      comments: [],
+      assignees: [],
+      history: [],
+      magicLink: '',
+      isImportant: false,
+    };
+    setTasks((prev) => [draft, ...prev]);
+    setSelectedTaskId(DRAFT_ID);
+  }, []);
+
+  // Удаляет задачу: оптимистично выкидываем из списка, при ошибке возвращаем.
+  // Сервер сам проверит права (admin / исполнитель) — фронт лишь скрывает кнопку
+  // для остальных ролей, но это не граница безопасности.
+  const deleteTask = async (taskId) => {
+    const before = tasks;
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setSelectedTaskId((prev) => (prev === taskId ? null : prev));
+    try {
+      await api.deleteTask(taskId);
+      showToast('success', 'Задача удалена');
+    } catch (err) {
+      setTasks(before);
+      showToast('error', 'Не удалось удалить: ' + (err.detail || err.message));
+    }
   };
 
-  const createTask = useCallback(async () => {
-    try {
-      const created = await api.createTask({
-        projectSlug: 'proj-eco',
-        title: 'Новая задача',
-        description: '',
-        tag: 'Обычная',
-        deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      });
-      setTasks((prev) => [created, ...prev]);
-      setSelectedTaskId(created.id);
-    } catch (err) {
-      window.alert('Не удалось создать задачу: ' + (err.detail || err.message));
-    }
-  }, []);
+  // Проверка прав на удаление конкретной задачи на стороне UI.
+  // Серверная проверка — авторитетная; здесь только чтобы скрыть кнопку у тех, кому нельзя.
+  const canDeleteTask = (task) => {
+    if (!task || !currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    if (currentUser.role !== 'pm') return false;
+    return (task.assignees ?? []).some((a) => a.id === currentUser.id);
+  };
 
   const updateTask = async (taskId, patch) => {
     try {
       const updated = await api.updateTask(taskId, patch);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось сохранить: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось сохранить: ' + (err.detail || err.message));
     }
   };
 
@@ -120,16 +170,22 @@ export default function App() {
     if (!canTransitionStatus(before.status, nextStatus, { isAdmin })) return;
 
     // Оптимистично обновляем UI, чтобы drag-and-drop ощущался мгновенным.
+    pendingByTaskId.current.set(taskId, nextStatus);
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus } : t)),
     );
     try {
       const updated = await api.transitionTask(taskId, nextStatus, { isAdmin });
+      // Если пока летел запрос юзер снова перетащил карточку — игнорируем устаревший ответ.
+      if (pendingByTaskId.current.get(taskId) !== nextStatus) return;
+      pendingByTaskId.current.delete(taskId);
       replaceTask(updated);
     } catch (err) {
-      // Откатываем при ошибке (например, сервер вернул FSM violation).
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? before : t)));
-      window.alert('Не удалось сменить статус: ' + (err.detail || err.message));
+      if (pendingByTaskId.current.get(taskId) === nextStatus) {
+        pendingByTaskId.current.delete(taskId);
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? before : t)));
+        showToast('error', 'Не удалось сменить статус: ' + (err.detail || err.message));
+      }
     }
   };
 
@@ -142,7 +198,7 @@ export default function App() {
       });
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось отправить комментарий: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось отправить комментарий: ' + (err.detail || err.message));
     }
   };
 
@@ -151,7 +207,7 @@ export default function App() {
       const updated = await api.addAssignee(taskId, assignee.id);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось назначить исполнителя: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось назначить исполнителя: ' + (err.detail || err.message));
     }
   };
 
@@ -160,7 +216,17 @@ export default function App() {
       const updated = await api.requestClient(taskId);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось запросить материалы: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось запросить материалы: ' + (err.detail || err.message));
+    }
+  };
+
+  const acceptContent = async (taskId) => {
+    try {
+      const updated = await api.acceptContent(taskId);
+      replaceTask(updated);
+      showToast('success', 'Контент принят. Клиенту отправлено подтверждающее письмо.');
+    } catch (err) {
+      showToast('error', 'Не удалось принять контент: ' + (err.detail || err.message));
     }
   };
 
@@ -228,43 +294,48 @@ export default function App() {
       {/* 2. Основной контент (Центр + Право) */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
         
-        {/* Header — зафиксирован сверху */}
-        <header className="h-20 border-b border-slate-100 flex items-center justify-between px-8 bg-white z-10">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-black text-slate-900 font-machine tracking-tighter">Прозрачный поток</h1>
-            <div className="px-3 py-1 bg-[#3C50B4]/5 text-[#3C50B4] text-[10px] font-black rounded-lg uppercase tracking-widest border border-[#3C50B4]/10">
+        {/* Header — адаптивный: h-14 на мобилке, h-20 на десктопе */}
+        <header className="h-14 md:h-20 border-b border-slate-100 flex items-center justify-between px-4 md:px-8 bg-white z-10 shrink-0">
+          <div className="flex items-center gap-2 md:gap-4">
+            <h1 className="text-base md:text-2xl font-black text-slate-900 font-machine tracking-tighter">Прозрачный поток</h1>
+            <div className="hidden md:block px-3 py-1 bg-[#3C50B4]/5 text-[#3C50B4] text-[10px] font-black rounded-lg uppercase tracking-widest border border-[#3C50B4]/10">
               Agency Mode
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 md:gap-6">
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen((v) => !v)}
                 className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                aria-label="Уведомления"
               >
-                <Bell size={22} />
+                <Bell size={20} />
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
               </button>
               {isNotificationsOpen && (
-                <NotificationsDropdown onClose={() => setIsNotificationsOpen(false)} />
+                <NotificationsDropdown isAdmin={isAdmin} onClose={() => setIsNotificationsOpen(false)} onToast={showToast} />
               )}
             </div>
 
-            <div className="flex items-center gap-3 pl-6 border-l border-slate-100">
+            <div className="flex items-center gap-2 md:gap-3 md:pl-6 md:border-l border-slate-100">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-black text-slate-800 leading-none">{currentUser.name}</p>
                 <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">
                   {currentUser.role === 'admin' ? 'Admin' : 'Producer'}
                 </p>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-[#FFD700] flex items-center justify-center font-black text-[#3C50B4] shadow-md shadow-yellow-100 border-2 border-white">
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                title="Настройки"
+                className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-[#FFD700] flex items-center justify-center font-black text-[#3C50B4] shadow-md shadow-yellow-100 border-2 border-white text-xs md:text-sm hover:scale-105 transition-transform active:scale-95"
+              >
                 {currentUser.name?.split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?'}
-              </div>
+              </button>
               <button
                 onClick={handleLogout}
                 title="Выйти"
-                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                className="hidden md:flex p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
               >
                 <LogOut size={18} />
               </button>
@@ -276,13 +347,13 @@ export default function App() {
         <div className="flex-1 flex overflow-hidden">
           
           {/* КАНБАН-ЗОНА: Выделяем цветом и отступами */}
-          <main className="flex-1 bg-[#F8FAFC] p-6 overflow-hidden flex flex-col">
-            
+          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-6 overflow-hidden flex flex-col">
+
             {/* Оболочка самого канбана — "белая доска" на сером фоне */}
-            <div className="flex-1 bg-white rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
-              
+            <div className="flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
+
               {/* Внутренний скролл только для доски */}
-              <div className="flex-1 overflow-x-auto p-8 custom-scrollbar">
+              <div className="flex-1 overflow-auto p-3 md:p-8 pb-20 md:pb-8 custom-scrollbar">
   {(activeTab === 'dashboard' || activeTab === 'tasks') && tasksLoading ? (
     <div className="flex items-center justify-center h-full text-slate-400 font-machine text-sm">
       Загружаем задачи...
@@ -322,7 +393,7 @@ export default function App() {
       onClearProjectFilter={() => setProjectFilter(null)}
     />
   ) : activeTab === 'projects' ? (
-    <ProjectsView onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} />
+    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
   ) : (
@@ -342,7 +413,14 @@ export default function App() {
       <TaskModal
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
+        isSaving={isSavingTask}
+        canDelete={canDeleteTask(selectedTask) && selectedTaskId !== DRAFT_ID}
+        onDelete={async () => {
+          if (!selectedTask || selectedTaskId === DRAFT_ID) return;
+          await deleteTask(selectedTask.id);
+        }}
         team={team}
+        botUsername={botUsername}
         isAdmin={isAdmin}
         onClose={closeTask}
         onOpenGuestView={() => {
@@ -365,6 +443,7 @@ export default function App() {
           await requestClientUpdate(selectedTask.id);
           return true;
         }}
+        onRequestTelegramLink={selectedTask?.clientId ? () => api.requestTelegramLink(selectedTask.clientId) : undefined}
         onSendComment={(message) => {
           if (!selectedTask) return;
           appendTaskComment(selectedTask.id, message);
@@ -373,9 +452,35 @@ export default function App() {
           if (!selectedTask) return;
           addTaskAssignee(selectedTask.id, assignee);
         }}
+        onAcceptContent={() => {
+          if (!selectedTask) return;
+          acceptContent(selectedTask.id);
+        }}
         onSave={async (patch) => {
+          // Черновик — создаём задачу через POST
+          if (selectedTaskId === DRAFT_ID) {
+            setIsSavingTask(true);
+            try {
+              const created = await api.createTask({
+                projectSlug: 'proj-eco',
+                title: patch.title || 'Новая задача',
+                description: patch.description ?? '',
+                tag: patch.tag ?? 'Обычная',
+                deadline: patch.deadline ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              });
+              // Заменяем черновик реальной задачей и закрываем без удаления
+              setTasks((prev) => prev.map((t) => (t.id === DRAFT_ID ? created : t)));
+              setSelectedTaskId(null);
+            } catch (err) {
+              showToast('error', 'Не удалось создать задачу: ' + (err.detail || err.message));
+            } finally {
+              setIsSavingTask(false);
+            }
+            return;
+          }
+          // Существующая задача — обновляем
           if (!selectedTask) {
-            window.alert('Не удалось сохранить: задача не найдена.');
+            showToast('error', 'Не удалось сохранить: задача не найдена.');
             return;
           }
           // Сначала статус (если меняется) — отдельный эндпоинт с FSM-проверкой,
@@ -391,9 +496,17 @@ export default function App() {
         }}
       />
 
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
+
+      <ToastContainer toasts={toasts} />
+
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={(tab) => { setActiveTab(tab); setProjectFilter(null); }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       <style>{`

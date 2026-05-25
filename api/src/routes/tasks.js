@@ -43,9 +43,9 @@ router.patch('/:id', wrap(async (req, res) => {
   res.json(await updateTaskFields(req.params.id, req.body ?? {}));
 }));
 
-// Удаление
+// Удаление — проверка прав (admin или исполнитель) внутри сервиса
 router.delete('/:id', wrap(async (req, res) => {
-  await deleteTask(req.params.id);
+  await deleteTask(req.params.id, { actor: req.user });
   res.status(204).end();
 }));
 
