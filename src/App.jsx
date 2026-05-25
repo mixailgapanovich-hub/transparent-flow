@@ -35,6 +35,11 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSavingTask, setIsSavingTask] = useState(false);
+  const [isAcceptingContent, setIsAcceptingContent] = useState(false);
+  // Set<taskId> — задачи в анимации удаления (fade-out перед фактическим удалением из tasks)
+  const [removingTaskIds, setRemovingTaskIds] = useState(() => new Set());
+  // 'logged-out' | null — флэш для LoginScreen после ручного выхода
+  const [authFlash, setAuthFlash] = useState(null);
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
@@ -85,6 +90,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try { await api.logout(); } catch { /* ignore — лучше всё равно выкинем */ }
+    setAuthFlash('logged-out');
     setCurrentUser(undefined);
   };
 
@@ -130,18 +136,37 @@ export default function App() {
     setSelectedTaskId(DRAFT_ID);
   }, []);
 
-  // Удаляет задачу: оптимистично выкидываем из списка, при ошибке возвращаем.
-  // Сервер сам проверит права (admin / исполнитель) — фронт лишь скрывает кнопку
-  // для остальных ролей, но это не граница безопасности.
+  // Удаляет задачу с fade-out анимацией (250мс).
+  // 1) Помечаем как "removing" — карточка анимируется в KanbanBoard.
+  // 2) Параллельно шлём DELETE.
+  // 3) После успеха + 250мс — реально убираем из tasks.
+  // При ошибке — снимаем флаг (карточка возвращается) и показываем toast.
+  // Сервер сам проверит права — фронт лишь скрывает кнопку, не security boundary.
   const deleteTask = async (taskId) => {
-    const before = tasks;
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setRemovingTaskIds((prev) => {
+      const next = new Set(prev);
+      next.add(taskId);
+      return next;
+    });
     setSelectedTaskId((prev) => (prev === taskId ? null : prev));
     try {
       await api.deleteTask(taskId);
+      // Ждём окончания CSS-перехода перед удалением из массива
+      setTimeout(() => {
+        setTasks((prev) => prev.filter((t) => t.id !== taskId));
+        setRemovingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+      }, 250);
       showToast('success', 'Задача удалена');
     } catch (err) {
-      setTasks(before);
+      setRemovingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
       showToast('error', 'Не удалось удалить: ' + (err.detail || err.message));
     }
   };
@@ -221,12 +246,16 @@ export default function App() {
   };
 
   const acceptContent = async (taskId) => {
+    if (isAcceptingContent) return;
+    setIsAcceptingContent(true);
     try {
       const updated = await api.acceptContent(taskId);
       replaceTask(updated);
       showToast('success', 'Контент принят. Клиенту отправлено подтверждающее письмо.');
     } catch (err) {
       showToast('error', 'Не удалось принять контент: ' + (err.detail || err.message));
+    } finally {
+      setIsAcceptingContent(false);
     }
   };
 
@@ -277,7 +306,13 @@ export default function App() {
 
   // Не залогинен — отдаём экран входа.
   if (!currentUser) {
-    return <LoginScreen onSuccess={setCurrentUser} />;
+    return (
+      <LoginScreen
+        onSuccess={(user) => { setAuthFlash(null); setCurrentUser(user); }}
+        flash={authFlash}
+        onFlashDismiss={() => setAuthFlash(null)}
+      />
+    );
   }
 
   return (
@@ -376,6 +411,7 @@ export default function App() {
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}
+      removingTaskIds={removingTaskIds}
     />
   ) : activeTab === 'tasks' ? (
     <KanbanBoard
@@ -387,6 +423,7 @@ export default function App() {
       isAdmin={isAdmin}
       activeId={activeId}
       setActiveId={setActiveId}
+      removingTaskIds={removingTaskIds}
       showProjectBadge
       showColumnFilter
       projectFilterLabel={projectFilter ? (PROJECT_BADGE_STYLES[projectFilter]?.label ?? projectFilter) : null}
@@ -414,6 +451,7 @@ export default function App() {
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
         isSaving={isSavingTask}
+        isAcceptingContent={isAcceptingContent}
         canDelete={canDeleteTask(selectedTask) && selectedTaskId !== DRAFT_ID}
         onDelete={async () => {
           if (!selectedTask || selectedTaskId === DRAFT_ID) return;

@@ -33,7 +33,7 @@ const TAG_LEFT_BORDER = {
   'Обычная':     'border-l-slate-300',
 };
 
-const MobileTaskCard = ({ task, onClick, showProjectBadge }) => {
+const MobileTaskCard = ({ task, onClick, showProjectBadge, isRemoving = false }) => {
   const isOverdue = useMemo(() => new Date(task.deadline) < new Date(), [task.deadline]);
   const isUrgent = useMemo(() => {
     const diff = new Date(task.deadline) - new Date();
@@ -44,9 +44,12 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge }) => {
 
   return (
     <div
-      onClick={() => onClick(task.id)}
+      onClick={() => !isRemoving && onClick(task.id)}
       className={`bg-white rounded-2xl border border-slate-100 shadow-sm p-4 border-l-4 ${borderColor}
-        active:scale-[0.98] transition-transform cursor-pointer`}
+        transition-all duration-[250ms] ease-out
+        ${isRemoving
+          ? 'opacity-0 translate-x-6 scale-95 pointer-events-none'
+          : 'opacity-100 translate-x-0 scale-100 active:scale-[0.98] cursor-pointer animate-in fade-in slide-in-from-top-2'}`}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <Badge type={task.tag} />
@@ -81,12 +84,12 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge }) => {
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge, isRemoving = false }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: isRemoving });
   const style = {
     transform: CSS.Translate.toString(transform),
     transition,
-    opacity: isDragging ? 0.65 : 1,
+    opacity: isDragging ? 0.65 : (isRemoving ? 0 : 1),
     boxShadow: isDragging ? '0 16px 32px rgba(15, 23, 42, 0.16)' : undefined,
   };
 
@@ -101,17 +104,18 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
   return (
     <div
       ref={setNodeRef} style={style} {...attributes} {...listeners}
-      onClick={() => onClick(task.id)}
+      onClick={() => !isRemoving && onClick(task.id)}
       onKeyDown={(event) => {
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !isRemoving) {
           event.preventDefault();
           onClick(task.id);
         }
       }}
-      tabIndex={0}
+      tabIndex={isRemoving ? -1 : 0}
       role="button"
       aria-label={`Открыть задачу: ${task.title}`}
-      className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3
+      className={`group relative p-4 rounded-xl border transition-all duration-[250ms] cursor-grab mb-3
+        ${isRemoving ? 'translate-x-6 scale-95 pointer-events-none' : 'animate-in fade-in slide-in-from-top-2 duration-300'}
         ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
@@ -150,7 +154,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
   );
 };
 
-const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
+const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, removingTaskIds }) => {
   const { setNodeRef } = useDroppable({ id: column.id });
   const isWaiting = column.id === 'waiting';
   const isClientUploaded = column.id === 'client-uploaded';
@@ -179,6 +183,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
               isWaitingCol={isWaiting}
               isClientUploadedCol={isClientUploaded}
               showProjectBadge={showProjectBadge}
+              isRemoving={removingTaskIds?.has(task.id)}
             />
           ))}
         </SortableContext>
@@ -246,6 +251,7 @@ export default function KanbanBoard({
   showColumnFilter = false,
   projectFilterLabel = null,
   onClearProjectFilter = null,
+  removingTaskIds = new Set(),
 }) {
   const columns = propColumns ?? COLUMNS;
   const [boardView, setBoardView] = useState('kanban');
@@ -391,6 +397,7 @@ export default function KanbanBoard({
                   task={task}
                   onClick={onTaskClick}
                   showProjectBadge={showProjectBadge}
+                  isRemoving={removingTaskIds?.has(task.id)}
                 />
               ))
             )}
@@ -490,6 +497,7 @@ export default function KanbanBoard({
                   tasks={tasks.filter((t) => t.status === column.id)}
                   onTaskClick={onTaskClick}
                   showProjectBadge={showProjectBadge}
+                  removingTaskIds={removingTaskIds}
                 />
               ))}
             </div>

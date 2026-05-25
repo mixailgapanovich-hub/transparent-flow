@@ -1,12 +1,24 @@
-import { useState } from 'react';
-import { LogIn, AlertCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { LogIn, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { api } from '../api/client';
 
-export default function LoginScreen({ onSuccess }) {
+export default function LoginScreen({ onSuccess, flash = null, onFlashDismiss }) {
   const [email, setEmail] = useState('admin@adena.local');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [showFlash, setShowFlash] = useState(false);
+
+  // Показываем плашку «Сессия завершена» 2.5 сек, потом плавно убираем
+  useEffect(() => {
+    if (flash !== 'logged-out') return undefined;
+    setShowFlash(true);
+    const id = setTimeout(() => {
+      setShowFlash(false);
+      onFlashDismiss?.();
+    }, 2500);
+    return () => clearTimeout(id);
+  }, [flash, onFlashDismiss]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -24,6 +36,12 @@ export default function LoginScreen({ onSuccess }) {
 
   return (
     <div className="min-h-screen w-screen bg-[#F8FAFC] flex items-center justify-center font-montserrat text-slate-800 px-4">
+      {showFlash && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-white border border-emerald-100 rounded-2xl shadow-lg shadow-emerald-50 animate-in fade-in slide-in-from-top-2 duration-300">
+          <CheckCircle2 size={16} className="text-emerald-500" />
+          <span className="text-xs font-black uppercase tracking-widest text-slate-700">Сессия завершена</span>
+        </div>
+      )}
       <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/80 shadow-xl shadow-blue-50 p-10 space-y-8">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#FFD700] flex items-center justify-center font-black text-[#3C50B4]">
@@ -84,9 +102,11 @@ export default function LoginScreen({ onSuccess }) {
           <button
             type="submit"
             disabled={busy || !email || !password}
-            className="w-full py-3 rounded-xl bg-[#3C50B4] text-white font-black text-sm tracking-wide flex items-center justify-center gap-2 transition hover:brightness-95 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full py-3 rounded-xl bg-[#3C50B4] text-white font-black text-sm tracking-wide flex items-center justify-center gap-2 transition hover:brightness-95 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
           >
-            <LogIn size={16} strokeWidth={2.5} />
+            {busy
+              ? <Loader2 size={16} className="animate-spin" />
+              : <LogIn size={16} strokeWidth={2.5} />}
             {busy ? 'Входим…' : 'Войти'}
           </button>
         </form>

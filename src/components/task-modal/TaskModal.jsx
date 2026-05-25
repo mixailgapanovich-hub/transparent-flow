@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, Link2, Loader2, MessageCircle, Send, Tag, Tr
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
+import ConfirmDialog from '../ConfirmDialog';
 
 const TAG_OPTIONS = ['Блокирующая', 'Ключевая', 'Обычная'];
 
@@ -50,7 +51,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete, isAcceptingContent = false }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -66,15 +67,22 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
   const [isOpen, setIsOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [isRequestLoading, setIsRequestLoading] = useState(false);
+  const [isSendingComment, setIsSendingComment] = useState(false);
+  const [isAddingAssignee, setIsAddingAssignee] = useState(false);
   const [telegramLinkData, setTelegramLinkData] = useState(null);
   const [telegramLinkBusy, setTelegramLinkBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const commentsRef = useRef(null);
 
+  // null | { type: 'close' | 'delete' } — стилизованный ConfirmDialog
+  const [confirmState, setConfirmState] = useState(null);
+
   const requestClose = () => {
-    if (!isDirty || window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) {
+    if (!isDirty) {
       onClose();
+      return;
     }
+    setConfirmState({ type: 'close' });
   };
 
   useEffect(() => {
@@ -114,10 +122,14 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
 
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const handleDelete = async () => {
+  // Запрашивает подтверждение через ConfirmDialog — сам actual delete делает confirmDelete()
+  const handleDelete = () => {
     if (!onDelete || isDeleting) return;
-    const title = task?.title?.trim() || 'эту задачу';
-    if (!window.confirm(`Удалить «${title}»? Это действие необратимо.`)) return;
+    setConfirmState({ type: 'delete' });
+  };
+
+  const confirmDelete = async () => {
+    setConfirmState(null);
     setIsDeleting(true);
     try {
       await onDelete();
@@ -143,10 +155,16 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
     });
   };
 
-  const handleSendComment = () => {
-    if (!commentDraft.trim()) return;
-    onSendComment?.(commentDraft.trim());
-    setCommentDraft('');
+  const handleSendComment = async () => {
+    const message = commentDraft.trim();
+    if (!message || isSendingComment) return;
+    setIsSendingComment(true);
+    try {
+      await onSendComment?.(message);
+      setCommentDraft('');
+    } finally {
+      setIsSendingComment(false);
+    }
   };
 
   const handleRequestClient = async () => {
@@ -302,16 +320,18 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                   <button
                     type="button"
                     onClick={() => onAcceptContent?.()}
-                    className="mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700"
+                    disabled={isAcceptingContent}
+                    className={`mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700 flex items-center justify-center gap-2 ${isAcceptingContent ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    Принять контент (отправить акт клиенту)
+                    {isAcceptingContent && <Loader2 size={13} className="animate-spin" />}
+                    {isAcceptingContent ? 'Принимаем…' : 'Принять контент (отправить акт клиенту)'}
                   </button>
                 </div>
               )}
               <div className="mt-3 flex items-center gap-2">
                 <input
                   value={commentDraft}
-                  disabled={draft.status === 'waiting'}
+                  disabled={draft.status === 'waiting' || isSendingComment}
                   onChange={(event) => setCommentDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
@@ -330,12 +350,14 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                 />
                 <button
                   type="button"
-                  disabled={draft.status === 'waiting'}
+                  disabled={draft.status === 'waiting' || isSendingComment || !commentDraft.trim()}
                   onClick={handleSendComment}
-                  className={`${UI_BUTTON_STYLES.primary} p-2.5 disabled:bg-slate-300`}
+                  className={`${UI_BUTTON_STYLES.primary} p-2.5 disabled:bg-slate-300 transition-all ${isSendingComment ? '' : 'active:scale-95'}`}
                   aria-label="Отправить комментарий"
                 >
-                  <Send size={15} />
+                  {isSendingComment
+                    ? <Loader2 size={15} className="animate-spin" />
+                    : <Send size={15} />}
                 </button>
               </div>
             </div>
@@ -435,26 +457,43 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                   </div>
                 ))}
               </div>
-              <select
-                disabled={availableAssignees.length === 0}
-                onChange={(event) => {
-                  const assignee = team.find((item) => item.id === event.target.value);
-                  if (!assignee) return;
-                  onAddAssignee?.(assignee);
-                  event.target.value = '';
-                }}
-                defaultValue=""
-                className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20 disabled:bg-slate-100"
-              >
-                <option value="" disabled>
-                  {availableAssignees.length === 0 ? 'Все добавлены' : 'Добавить участника'}
-                </option>
-                {availableAssignees.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name}
+              <div className="relative mt-3">
+                <select
+                  disabled={availableAssignees.length === 0 || isAddingAssignee}
+                  onChange={async (event) => {
+                    const assignee = team.find((item) => item.id === event.target.value);
+                    if (!assignee) return;
+                    event.target.value = '';
+                    setIsAddingAssignee(true);
+                    try {
+                      await onAddAssignee?.(assignee);
+                    } finally {
+                      setIsAddingAssignee(false);
+                    }
+                  }}
+                  defaultValue=""
+                  className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20 disabled:bg-slate-100 ${isAddingAssignee ? 'pr-9 text-slate-400' : ''}`}
+                >
+                  <option value="" disabled>
+                    {isAddingAssignee
+                      ? 'Назначаем…'
+                      : availableAssignees.length === 0
+                        ? 'Все добавлены'
+                        : 'Добавить участника'}
                   </option>
-                ))}
-              </select>
+                  {availableAssignees.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                    </option>
+                  ))}
+                </select>
+                {isAddingAssignee && (
+                  <Loader2
+                    size={15}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#3C50B4] pointer-events-none"
+                  />
+                )}
+              </div>
             </div>
 
             <button
@@ -604,6 +643,32 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
           </div>
         </footer>
       </div>
+
+      {/* Стилизованные диалоги подтверждения — вместо window.confirm */}
+      <ConfirmDialog
+        isOpen={confirmState?.type === 'close'}
+        title="Есть несохранённые изменения"
+        message="Если закрыть окно сейчас, ваши правки будут потеряны. Продолжить?"
+        confirmText="Закрыть без сохранения"
+        cancelText="Продолжить редактировать"
+        tone="default"
+        onConfirm={() => { setConfirmState(null); onClose(); }}
+        onCancel={() => setConfirmState(null)}
+      />
+      <ConfirmDialog
+        isOpen={confirmState?.type === 'delete'}
+        title="Удалить задачу?"
+        message={
+          <>
+            Задача <span className="font-bold text-slate-700">«{task?.title?.trim() || 'без названия'}»</span> будет удалена безвозвратно. Это действие нельзя отменить.
+          </>
+        }
+        confirmText="Удалить"
+        cancelText="Отмена"
+        tone="destructive"
+        onConfirm={confirmDelete}
+        onCancel={() => setConfirmState(null)}
+      />
     </div>
   );
 }
