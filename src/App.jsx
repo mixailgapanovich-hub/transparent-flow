@@ -99,24 +99,30 @@ export default function App() {
     setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
   }, []);
 
-  // Временный ID черновика — никогда не попадёт в БД
+  // Временный ID черновика — никогда не попадёт в БД и НЕ попадает в массив tasks,
+  // чтобы пустая карточка не маячила на канбане за модалкой.
   const DRAFT_ID = '__new_task_draft__';
+  const [draftTask, setDraftTask] = useState(null);
 
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
+  // selectedTask: либо черновик (если открыт draft), либо обычная задача из tasks
+  const selectedTask =
+    selectedTaskId === DRAFT_ID
+      ? draftTask
+      : tasks.find((task) => task.id === selectedTaskId) ?? null;
 
   const openTask = (taskId) => {
     setSelectedTaskId(taskId);
   };
 
   const closeTask = useCallback(() => {
-    // Если модалка закрыта без сохранения — выкидываем черновик из списка
-    setTasks((prev) => prev.filter((t) => t.id !== DRAFT_ID));
+    setDraftTask(null);
     setSelectedTaskId(null);
   }, []);
 
-  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save
+  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save.
+  // Черновик хранится в отдельном state, в массив tasks НЕ добавляется.
   const createTask = useCallback(() => {
-    const draft = {
+    setDraftTask({
       id: DRAFT_ID,
       projectId: 'proj-eco',
       title: '',
@@ -131,17 +137,17 @@ export default function App() {
       history: [],
       magicLink: '',
       isImportant: false,
-    };
-    setTasks((prev) => [draft, ...prev]);
+    });
     setSelectedTaskId(DRAFT_ID);
   }, []);
 
-  // Удаляет задачу с fade-out анимацией (250мс).
-  // 1) Помечаем как "removing" — карточка анимируется в KanbanBoard.
+  // Удаляет задачу с fade-out анимацией (~500мс).
+  // 1) Помечаем как "removing" — карточка плавно уезжает и блёкнет.
   // 2) Параллельно шлём DELETE.
-  // 3) После успеха + 250мс — реально убираем из tasks.
+  // 3) После успеха + 500мс — реально убираем из tasks.
   // При ошибке — снимаем флаг (карточка возвращается) и показываем toast.
   // Сервер сам проверит права — фронт лишь скрывает кнопку, не security boundary.
+  const REMOVE_ANIM_MS = 500;
   const deleteTask = async (taskId) => {
     setRemovingTaskIds((prev) => {
       const next = new Set(prev);
@@ -159,7 +165,7 @@ export default function App() {
           next.delete(taskId);
           return next;
         });
-      }, 250);
+      }, REMOVE_ANIM_MS);
       showToast('success', 'Задача удалена');
     } catch (err) {
       setRemovingTaskIds((prev) => {
@@ -495,7 +501,8 @@ export default function App() {
           acceptContent(selectedTask.id);
         }}
         onSave={async (patch) => {
-          // Черновик — создаём задачу через POST
+          // Черновик — создаём задачу через POST. Только после успеха добавляем
+          // в массив tasks (тогда карточка появится в Backlog с enter-анимацией).
           if (selectedTaskId === DRAFT_ID) {
             setIsSavingTask(true);
             try {
@@ -506,8 +513,8 @@ export default function App() {
                 tag: patch.tag ?? 'Обычная',
                 deadline: patch.deadline ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
               });
-              // Заменяем черновик реальной задачей и закрываем без удаления
-              setTasks((prev) => prev.map((t) => (t.id === DRAFT_ID ? created : t)));
+              setTasks((prev) => [created, ...prev]);
+              setDraftTask(null);
               setSelectedTaskId(null);
             } catch (err) {
               showToast('error', 'Не удалось создать задачу: ' + (err.detail || err.message));
