@@ -396,10 +396,17 @@ export async function addAssignee(taskId, userId, { actorId = null } = {}) {
   return getTaskById(id);
 }
 
-/** Запрос материалов у клиента: status → waiting, генерируется magic_link_token. */
+/**
+ * Запрос материалов у клиента: status → waiting, генерируется magic_link_token.
+ * SELECT FOR UPDATE защищает от гонки с параллельным applyGuestUpload — между
+ * SELECT и UPDATE никто другой не может тронуть строку.
+ */
 export async function requestClientContent(taskId, { actorId = null } = {}) {
   const id = await withTransaction(async (c) => {
-    const cur = await c.query('SELECT status FROM tasks WHERE id = $1 FOR UPDATE', [taskId]);
+    const cur = await c.query(
+      'SELECT status FROM tasks WHERE id = $1 FOR UPDATE',
+      [taskId],
+    );
     if (cur.rowCount === 0) throw new HttpError(404, 'Task not found');
     const fromStatus = cur.rows[0].status;
 

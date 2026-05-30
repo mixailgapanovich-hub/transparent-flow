@@ -64,6 +64,10 @@ export const api = {
   acceptContent: (id) =>
     json('POST', `/api/tasks/${id}/transition`, { toStatus: 'done' }),
 
+  // clients
+  requestTelegramLink: (clientId) =>
+    json('POST', `/api/clients/${clientId}/telegram-onboarding`),
+
   // admin / notifications
   listNotifications: () => request('/api/admin/notifications'),
   triggerNotifications: ({ virtualNow } = {}) => {

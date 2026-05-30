@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, LogOut } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import Sidebar from './components/Sidebar';
@@ -7,6 +7,7 @@ import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
 import LoginScreen from './components/LoginScreen';
+import { useToast } from './components/Toast';
 import { api } from './api/client';
 import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
 import { canTransitionStatus } from './utils/taskWorkflow';
@@ -15,6 +16,7 @@ import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
 
 export default function App() {
+  const toast = useToast();
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
   const [currentUser, setCurrentUser] = useState(null);
   const isAdmin = currentUser?.role === 'admin';
@@ -23,6 +25,7 @@ export default function App() {
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState(null);
   const [team, setTeam] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [botUsername, setBotUsername] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
@@ -30,6 +33,11 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
+
+  // Карта taskId → последний "in-flight" нужный статус. Используется в drag-drop
+  // для защиты от race: если пользователь успел потянуть карточку второй раз
+  // до возврата ответа на первый, мы умеем понять кто из ответов "наш текущий".
+  const pendingStatusByTask = useRef(new Map());
 
   // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
   const [authChecked, setAuthChecked] = useState(false);
@@ -45,6 +53,7 @@ export default function App() {
     if (!currentUser) {
       setTasks([]);
       setTeam([]);
+      setProjects([]);
       setTasksLoading(false);
       return;
     }
@@ -67,6 +76,9 @@ export default function App() {
     api.listUsers()
       .then((data) => { if (!cancelled) setTeam(data); })
       .catch((err) => console.error('[App] не удалось загрузить команду:', err));
+    api.listProjects()
+      .then((data) => { if (!cancelled) setProjects(data); })
+      .catch((err) => console.error('[App] не удалось загрузить проекты:', err));
     api.botInfo()
       .then((info) => { if (!cancelled) setBotUsername(info?.configured ? info.botUsername : null); })
       .catch(() => {});
@@ -104,36 +116,51 @@ export default function App() {
       });
       setTasks((prev) => [created, ...prev]);
       setSelectedTaskId(created.id);
+      toast.show({ tone: 'success', message: 'Задача создана' });
     } catch (err) {
-      window.alert('Не удалось создать задачу: ' + (err.detail || err.message));
+      toast.show({ tone: 'error', message: 'Не удалось создать задачу: ' + (err.detail || err.message) });
     }
-  }, []);
+  }, [toast]);
 
   const updateTask = async (taskId, patch) => {
     try {
       const updated = await api.updateTask(taskId, patch);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось сохранить: ' + (err.detail || err.message));
+      toast.show({ tone: 'error', message: 'Не удалось сохранить: ' + (err.detail || err.message) });
     }
   };
 
+  /**
+   * Смена статуса задачи. Реализация защищена от гонки drag-drop: если пользователь
+   * тащит карточку быстрее, чем сервер отвечает, мы применяем только тот ответ,
+   * который соответствует ПОСЛЕДНЕМУ намерению (см. pendingStatusByTask).
+   */
   const updateTaskStatus = async (taskId, nextStatus) => {
     const before = tasks.find((t) => t.id === taskId);
     if (!before || before.status === nextStatus) return;
     if (!canTransitionStatus(before.status, nextStatus, { isAdmin })) return;
 
+    pendingStatusByTask.current.set(taskId, nextStatus);
     // Оптимистично обновляем UI, чтобы drag-and-drop ощущался мгновенным.
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus } : t)),
     );
     try {
       const updated = await api.transitionTask(taskId, nextStatus, { isAdmin });
-      replaceTask(updated);
+      // Применяем DTO только если мы по-прежнему "последние": между нашим вызовом
+      // и ответом сервера юзер мог уже бросить карточку дальше.
+      if (pendingStatusByTask.current.get(taskId) === nextStatus) {
+        replaceTask(updated);
+        pendingStatusByTask.current.delete(taskId);
+      }
     } catch (err) {
-      // Откатываем при ошибке (например, сервер вернул FSM violation).
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? before : t)));
-      window.alert('Не удалось сменить статус: ' + (err.detail || err.message));
+      // Откат — тоже только если мы последние, иначе мы перетрём более новое намерение.
+      if (pendingStatusByTask.current.get(taskId) === nextStatus) {
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? before : t)));
+        pendingStatusByTask.current.delete(taskId);
+        toast.show({ tone: 'error', message: 'Не удалось сменить статус: ' + (err.detail || err.message) });
+      }
     }
   };
 
@@ -146,7 +173,7 @@ export default function App() {
       });
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось отправить комментарий: ' + (err.detail || err.message));
+      toast.show({ tone: 'error', message: 'Не удалось отправить комментарий: ' + (err.detail || err.message) });
     }
   };
 
@@ -155,7 +182,7 @@ export default function App() {
       const updated = await api.addAssignee(taskId, assignee.id);
       replaceTask(updated);
     } catch (err) {
-      window.alert('Не удалось назначить исполнителя: ' + (err.detail || err.message));
+      toast.show({ tone: 'error', message: 'Не удалось назначить исполнителя: ' + (err.detail || err.message) });
     }
   };
 
@@ -163,8 +190,9 @@ export default function App() {
     try {
       const updated = await api.requestClient(taskId);
       replaceTask(updated);
+      toast.show({ tone: 'success', message: 'Запрос отправлен. Magic-ссылка сгенерирована.' });
     } catch (err) {
-      window.alert('Не удалось запросить материалы: ' + (err.detail || err.message));
+      toast.show({ tone: 'error', message: 'Не удалось запросить материалы: ' + (err.detail || err.message) });
     }
   };
 
@@ -172,9 +200,9 @@ export default function App() {
     try {
       const updated = await api.acceptContent(taskId);
       replaceTask(updated);
-      window.alert('Контент принят. Клиенту отправлено подтверждающее письмо.');
+      toast.show({ tone: 'success', message: 'Контент принят. Клиенту отправлено подтверждающее письмо.' });
     } catch (err) {
-      window.alert('Не удалось принять контент: ' + (err.detail || err.message));
+      toast.show({ tone: 'error', message: 'Не удалось принять контент: ' + (err.detail || err.message) });
     }
   };
 
@@ -255,6 +283,8 @@ export default function App() {
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen((v) => !v)}
+                aria-label="Уведомления"
+                aria-expanded={isNotificationsOpen}
                 className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
               >
                 <Bell size={22} />
@@ -336,7 +366,10 @@ export default function App() {
       onClearProjectFilter={() => setProjectFilter(null)}
     />
   ) : activeTab === 'projects' ? (
-    <ProjectsView onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} />
+    <ProjectsView
+      projects={projects}
+      onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }}
+    />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
   ) : (

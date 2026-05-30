@@ -1,11 +1,16 @@
 // Webhook + общий обработчик апдейтов от Telegram.
 //
-// Обрабатываем только команду /start <clientId> (deep-link от PM-а):
-// клиент жмёт ссылку → бот видит /start <uuid> → сохраняем chat_id и приветствуем.
+// Обрабатываем команду /start <token> (deep-link от PM-а):
+// клиент жмёт ссылку → бот видит /start <onboarding-token> →
+// токен валидируется, гасится (single-use, TTL 24ч), сохраняется chat_id.
+//
+// Старая схема /start <clientId> убрана — это была уязвимость: любой кто знал
+// UUID клиента мог перехватить его уведомления. См. clientService.js.
 
 import { Router } from 'express';
-import { pool } from '../db/pool.js';
 import * as telegram from '../services/channels/telegram.js';
+import { consumeTelegramOnboardingToken } from '../services/clientService.js';
+import { escapeHtml } from '../services/notificationTemplates.js';
 
 const SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || 'dev-webhook-secret';
 
@@ -24,26 +29,22 @@ export async function handleUpdate(update) {
   if (!param) {
     await telegram.send(
       chatId,
-      'Привет! Чтобы привязать этот чат к проекту, перейдите по deep-link от менеджера.',
+      'Привет! Чтобы привязать этот чат к проекту, перейдите по ссылке-приглашению от менеджера.',
     );
     return;
   }
-  // param — это clientId (UUID)
-  const result = await pool.query(
-    `UPDATE clients
-        SET telegram_chat_id = $1, telegram_username = $2
-      WHERE id = $3
-      RETURNING company_name`,
-    [chatId, username, param],
-  );
-  if (result.rowCount === 0) {
-    await telegram.send(chatId, 'Не удалось распознать ссылку. Проверьте у менеджера.');
+
+  const company = await consumeTelegramOnboardingToken(param, chatId, username);
+  if (!company) {
+    await telegram.send(
+      chatId,
+      'Ссылка-приглашение не найдена или уже использована. Запросите у менеджера новую.',
+    );
     return;
   }
-  const company = result.rows[0].company_name;
   await telegram.send(
     chatId,
-    `Готово! Чат привязан к проекту «${company}». ` +
+    `✅ <b>Готово!</b> Чат привязан к проекту <b>«${escapeHtml(company)}»</b>.\n` +
       'Здесь будут приходить уведомления по задачам.',
   );
 }

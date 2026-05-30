@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../api/client';
+import { useToast } from './Toast';
 
 // Карта event_type → как отрендерить плашку
 const EVENT_STYLES = {
@@ -24,21 +25,25 @@ function relativeTime(iso) {
 }
 
 function describe(ev) {
+  // Defensive: события могут прийти с пустым/неожиданным payload, не должно ронять UI.
+  const title = ev.task_title ?? 'без названия';
+  const lvl = ev.payload?.level ?? '?';
+  const err = ev.payload?.error;
   switch (ev.event_type) {
     case 'notification_sent':
-      return `${EVENT_STYLES.notification_sent.label}, уровень ${ev.payload?.level} — «${ev.task_title}»`;
+      return `${EVENT_STYLES.notification_sent.label}, уровень ${lvl} — «${title}»`;
     case 'notification_failed':
-      return `${EVENT_STYLES.notification_failed.label}, уровень ${ev.payload?.level} — «${ev.task_title}»`;
+      return `${EVENT_STYLES.notification_failed.label}, уровень ${lvl} — «${title}»`;
     case 'cascade_exhausted':
-      return `${EVENT_STYLES.cascade_exhausted.label} — «${ev.task_title}». Нужен ручной контакт.`;
+      return `${EVENT_STYLES.cascade_exhausted.label} — «${title}». Нужен ручной контакт.`;
     case 'verification_email_sent':
-      return `${EVENT_STYLES.verification_email_sent.label} клиенту — «${ev.task_title}»`;
+      return `${EVENT_STYLES.verification_email_sent.label} клиенту — «${title}»`;
     case 'verification_email_failed':
-      return `${EVENT_STYLES.verification_email_failed.label} — «${ev.task_title}»: ${ev.payload?.error || ''}`;
+      return `${EVENT_STYLES.verification_email_failed.label} — «${title}»${err ? ': ' + err : ''}`;
     case 'client_upload':
-      return `${EVENT_STYLES.client_upload.label} — «${ev.task_title}»`;
+      return `${EVENT_STYLES.client_upload.label} — «${title}»`;
     default:
-      return `${ev.event_type} — «${ev.task_title}»`;
+      return `${ev.event_type} — «${title}»`;
   }
 }
 
@@ -49,6 +54,7 @@ function previewUrlOf(ev) {
 }
 
 export default function NotificationsDropdown({ onClose, isAdmin = false }) {
+  const toast = useToast();
   const ref = useRef(null);
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
@@ -77,11 +83,12 @@ export default function NotificationsDropdown({ onClose, isAdmin = false }) {
       const result = await api.triggerNotifications({ virtualNow });
       await refresh();
       const note = daysAhead
-        ? `Прогон с виртуальной датой +${daysAhead}д: отправлено ${result.sent}, ошибок ${result.failed}, пропущено ${result.skipped}.`
-        : `Прогон каскада: отправлено ${result.sent}, ошибок ${result.failed}, пропущено ${result.skipped}.`;
-      window.alert(note);
+        ? `+${daysAhead} дн: отправлено ${result.sent}, ошибок ${result.failed}, пропущено ${result.skipped}`
+        : `Тик каскада: отправлено ${result.sent}, ошибок ${result.failed}, пропущено ${result.skipped}`;
+      const tone = result.failed > 0 ? 'error' : 'success';
+      toast.show({ tone, message: note });
     } catch (err) {
-      window.alert('Ошибка: ' + (err.detail || err.message));
+      toast.show({ tone: 'error', message: 'Ошибка прогона каскада: ' + (err.detail || err.message) });
     } finally {
       setTriggerBusy(false);
     }

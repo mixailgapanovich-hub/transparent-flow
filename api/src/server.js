@@ -11,6 +11,7 @@ import guestRouter from './routes/guest.js';
 import authRouter from './routes/auth.js';
 import telegramRouter, { handleUpdate as handleTelegramUpdate } from './routes/telegram.js';
 import adminRouter from './routes/admin.js';
+import clientsRouter from './routes/clients.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
 import {
   initTelegram,
@@ -82,6 +83,7 @@ app.use('/api/telegram', telegramRouter); // webhook от Telegram-сервер�
 app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/tasks',    requireAuth, tasksRouter);
 app.use('/api/users',    requireAuth, usersRouter);
+app.use('/api/clients',  requireAuth, clientsRouter);
 app.use('/api/admin',    requireAuth, adminRouter); // role=admin проверяется внутри роута
 
 app.use((req, res) => {
@@ -96,8 +98,27 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-/** Стартовая sanity-проверка: ворнинги о кривом конфиге, без падения. */
+/** Стартовая sanity-проверка: ворнинги о кривом конфиге, фатал при опасных дефолтах в проде. */
 function sanityCheckEnv() {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // ── prod-блокировки: лучше упасть на старте, чем тихо протекать в продакшне ──
+  if (isProd) {
+    const fatals = [];
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'dev-secret-change-me-please') {
+      fatals.push('JWT_SECRET не задан или равен дефолтному dev-значению');
+    }
+    if (process.env.CORS_ORIGIN?.includes('localhost')) {
+      fatals.push('CORS_ORIGIN указывает на localhost — поменяйте на production-домен');
+    }
+    if (fatals.length > 0) {
+      console.error('[startup] FATAL prod-config:');
+      for (const f of fatals) console.error('  • ' + f);
+      process.exit(1);
+    }
+  }
+
+  // ── мягкие предупреждения ──
   if (process.env.TELEGRAM_BOT_TOKEN && !process.env.TELEGRAM_BOT_USERNAME) {
     console.warn('[startup] TELEGRAM_BOT_TOKEN задан, но TELEGRAM_BOT_USERNAME пуст — deep-link не сработает');
   }

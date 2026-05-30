@@ -54,13 +54,20 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
           onClick(task.id);
         }
       }}
+      role="button"
+      aria-label={`Открыть задачу: ${task.title}`}
       tabIndex={0}
       className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3
         ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-        <button className={`p-1.5 ${UI_BUTTON_STYLES.ghost}`} aria-label="Открыть задачу для редактирования">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onClick(task.id); }}
+          className={`p-1.5 ${UI_BUTTON_STYLES.ghost}`}
+          aria-label="Открыть задачу для редактирования"
+        >
           <Edit2 size={12} />
         </button>
       </div>

@@ -3,6 +3,7 @@ import { CalendarDays, Link2, MessageCircle, Send, Tag, Users, X } from 'lucide-
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
+import { api } from '../../api/client';
 
 const TAG_OPTIONS = ['Блокирующая', 'Ключевая', 'Обычная'];
 
@@ -66,8 +67,40 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
   const [isOpen, setIsOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [isRequestLoading, setIsRequestLoading] = useState(false);
+  const [isAcceptBusy, setIsAcceptBusy] = useState(false);
+  const [tgOnboarding, setTgOnboarding] = useState({ loading: false, link: null, error: null });
   const [toast, setToast] = useState(null);
   const commentsRef = useRef(null);
+
+  // Сброс onboarding state при смене задачи: новая модалка → новый клиент → старая ссылка не релевантна
+  useEffect(() => {
+    setTgOnboarding({ loading: false, link: null, error: null });
+  }, [task?.clientId]);
+
+  const handleGenerateTelegramLink = async () => {
+    if (!task?.clientId) return;
+    setTgOnboarding({ loading: true, link: null, error: null });
+    try {
+      const { link } = await api.requestTelegramLink(task.clientId);
+      if (!link) {
+        setTgOnboarding({ loading: false, link: null, error: 'Telegram-бот не настроен' });
+        return;
+      }
+      setTgOnboarding({ loading: false, link, error: null });
+    } catch (err) {
+      setTgOnboarding({ loading: false, link: null, error: err.detail || err.message });
+    }
+  };
+
+  const handleAcceptContent = async () => {
+    if (!onAcceptContent || isAcceptBusy) return;
+    setIsAcceptBusy(true);
+    try {
+      await onAcceptContent();
+    } finally {
+      setIsAcceptBusy(false);
+    }
+  };
 
   const requestClose = () => {
     if (!isDirty || window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) {
@@ -165,6 +198,9 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
       role="presentation"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-modal-title"
         className={`max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl transition-transform duration-200 ${
           isOpen ? 'scale-100' : 'scale-95'
         }`}
@@ -188,8 +224,9 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
         <div className="grid max-h-[calc(90vh-140px)] grid-cols-1 overflow-y-auto md:grid-cols-10">
           <section className="md:col-span-7 border-r border-slate-100 p-6">
             <SectionTitle title="Основные поля" subtitle="Редактируйте задачу без перехода на отдельный экран" />
-            <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Заголовок</label>
+            <label htmlFor="task-modal-title" className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Заголовок</label>
             <input
+              id="task-modal-title"
               value={draft.title}
               onChange={(event) => {
                 setDraft((prev) => ({ ...prev, title: event.target.value }));
@@ -237,10 +274,11 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                   <p>Клиент загрузил материалы. Проверьте их и зафиксируйте приём.</p>
                   <button
                     type="button"
-                    onClick={() => onAcceptContent?.()}
-                    className="mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700"
+                    onClick={handleAcceptContent}
+                    disabled={isAcceptBusy}
+                    className="mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700 disabled:opacity-60 disabled:cursor-wait"
                   >
-                    Принять контент (отправить акт клиенту)
+                    {isAcceptBusy ? 'Отправляем акт…' : 'Принять контент (отправить акт клиенту)'}
                   </button>
                 </div>
               )}
@@ -440,38 +478,65 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
 
             {/* Telegram-привязка клиента — показываем только если бот настроен */}
             {botUsername && task.clientId && (
-              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
+              <div className="mt-3 rounded-xl border border-[#3C50B4]/20 bg-[#3C50B4]/5 p-3">
                 {task.clientTelegramLinked ? (
-                  <p className="text-xs font-semibold text-sky-700">
+                  <p className="text-xs font-semibold text-[#3C50B4]">
                     ✓ Telegram-чат клиента привязан. Уведомления уйдут туда автоматически.
                   </p>
                 ) : (
                   <>
-                    <p className="text-xs font-semibold text-sky-700">
+                    <p className="text-xs font-semibold text-[#3C50B4]">
                       Telegram клиента не привязан
                     </p>
-                    <p className="mt-1 text-[11px] text-sky-600">
-                      Отправьте клиенту эту ссылку, чтобы он подключил бота:
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Сгенерируйте одноразовую ссылку и отправьте клиенту, чтобы он подключил бота.
                     </p>
-                    <p className="mt-1 break-all rounded bg-white px-2 py-1 text-xs text-slate-700">
-                      {`https://t.me/${botUsername}?start=${task.clientId}`}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const link = `https://t.me/${botUsername}?start=${task.clientId}`;
-                        try {
-                          await navigator.clipboard.writeText(link);
-                          setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
-                          setTimeout(() => setToast(null), 2400);
-                        } catch {
-                          setToast({ tone: 'error', message: 'Не удалось скопировать' });
-                        }
-                      }}
-                      className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
-                    >
-                      Копировать Telegram-ссылку
-                    </button>
+
+                    {tgOnboarding.link ? (
+                      <>
+                        <p className="mt-2 break-all rounded bg-white px-2 py-1.5 text-xs text-slate-700 border border-slate-200">
+                          {tgOnboarding.link}
+                        </p>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(tgOnboarding.link);
+                                setToast({ tone: 'info', message: 'Telegram-ссылка скопирована' });
+                                setTimeout(() => setToast(null), 2400);
+                              } catch {
+                                setToast({ tone: 'error', message: 'Не удалось скопировать' });
+                              }
+                            }}
+                            className={`px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}
+                          >
+                            Копировать
+                          </button>
+                          <a
+                            href={tgOnboarding.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.primary}`}
+                          >
+                            Открыть в Telegram
+                          </a>
+                        </div>
+                        <p className="mt-2 text-[10px] text-slate-400">Ссылка одноразовая, действует 24 часа.</p>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleGenerateTelegramLink}
+                        disabled={tgOnboarding.loading}
+                        className={`mt-2 px-3 py-1.5 text-xs font-semibold ${UI_BUTTON_STYLES.primary} disabled:opacity-60 disabled:cursor-wait`}
+                      >
+                        {tgOnboarding.loading ? 'Генерация…' : 'Сгенерировать Telegram-ссылку'}
+                      </button>
+                    )}
+                    {tgOnboarding.error && (
+                      <p className="mt-2 text-[11px] text-red-500">{tgOnboarding.error}</p>
+                    )}
                   </>
                 )}
               </div>

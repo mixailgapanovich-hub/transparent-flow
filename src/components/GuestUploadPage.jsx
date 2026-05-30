@@ -268,7 +268,7 @@ export default function GuestUploadPage({ token, onClose, onUploaded }) {
               {/* Submit */}
               <button
                 onClick={handleSubmit}
-                disabled={stagedFiles.length === 0}
+                disabled={stagedFiles.length === 0 || uploadState === 'uploading' || uploadState === 'success'}
                 className="mt-4 w-full py-3 rounded-xl bg-[#3C50B4] text-white font-black text-sm tracking-wide transition hover:brightness-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Отправить материалы

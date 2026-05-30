@@ -1,6 +1,5 @@
 import React from 'react';
 import { Calendar, Layers, Plus, ArrowUpRight } from 'lucide-react';
-import { MOCK_PROJECTS } from '../data/mockProjects';
 
 const PRIORITY_LABEL = {
   high: 'Высокий',
@@ -22,7 +21,7 @@ const STATUS_DOT = {
 
 const MAX_VISIBLE_MEMBERS = 3;
 
-export default function ProjectsView({ onOpenProject }) {
+export default function ProjectsView({ projects = [], onOpenProject }) {
   return (
     <div className="space-y-10 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
@@ -36,16 +35,32 @@ export default function ProjectsView({ onOpenProject }) {
         </button>
       </div>
 
+      {projects.length === 0 && (
+        <div className="rounded-3xl border border-slate-100 bg-slate-50 px-8 py-16 text-center text-sm text-slate-400">
+          Пока нет проектов.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {MOCK_PROJECTS.map((project) => {
-          const visibleMembers = project.members.slice(0, MAX_VISIBLE_MEMBERS);
-          const extraCount = project.members.length - visibleMembers.length;
+        {projects.map((project) => {
+          const members = project.members ?? [];
+          const visibleMembers = members.slice(0, MAX_VISIBLE_MEMBERS);
+          const extraCount = members.length - visibleMembers.length;
           const dotClass = STATUS_DOT[project.status] ?? 'bg-slate-300';
 
           return (
             <div
               key={project.id}
-              onClick={() => onOpenProject?.(project.id)}
+              role="button"
+              tabIndex={0}
+              aria-label={`Открыть проект: ${project.name}`}
+              onClick={() => onOpenProject?.(project.slug ?? project.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenProject?.(project.slug ?? project.id);
+                }
+              }}
               className="group bg-[#F4F9FF] border border-blue-100 p-7 rounded-4xl hover:border-blue-300 hover:shadow-2xl hover:shadow-blue-100/50 transition-all cursor-pointer relative flex flex-col h-full"
             >
               <div className="absolute top-6 right-6 w-10 h-10 bg-white rounded-xl flex items-center justify-center text-blue-400 opacity-0 group-hover:opacity-100 transition-all group-hover:rotate-12">

@@ -67,17 +67,21 @@ export async function initEmail() {
 
 /**
  * Отправка письма. Возвращает {ok, messageId, previewUrl?} или skipped.
+ * `text` обязателен (fallback для клиентов без HTML); `html` опционален.
  * previewUrl выставляется только для Ethereal — пишется в логи для проверки.
  */
-export async function send({ to, subject, body }) {
+export async function send({ to, subject, text, html, body }) {
   if (!emailState.configured || !transporter) return { skipped: 'not-configured' };
   if (!to) return { skipped: 'no-recipient' };
+  // Обратная совместимость: старые вызовы могли передавать body вместо text.
+  const finalText = text ?? body ?? '';
   try {
     const info = await transporter.sendMail({
       from: emailState.from,
       to,
       subject,
-      text: body,
+      text: finalText,
+      ...(html ? { html } : {}),
     });
     emailState.lastSendAt = new Date().toISOString();
     emailState.lastError = null;
