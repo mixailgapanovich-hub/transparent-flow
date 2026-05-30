@@ -7,8 +7,8 @@ import { KNOWLEDGE_SECTIONS, KNOWLEDGE_CATEGORIES, KNOWLEDGE_ARTICLES } from '..
 
 const iconMap = { UserPlus, Cpu, Layout, ShoppingBag, PenTool, LifeBuoy, BadgeDollarSign };
 
-export default function KnowledgeBase() {
-  const [activeSection, setActiveSection] = useState('agency');
+export default function KnowledgeBase({ clientFacingOnly = false }) {
+  const [activeSection, setActiveSection] = useState(clientFacingOnly ? 'clients' : 'agency');
   const [activeCategory, setActiveCategory] = useState('all');
   const [query, setQuery] = useState('');
   const [openArticle, setOpenArticle] = useState(null);
@@ -46,7 +46,7 @@ export default function KnowledgeBase() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div>
           <h2 className="text-3xl font-black text-slate-900 font-machine leading-none">База знаний</h2>
-          <div className="flex gap-3 mt-5">
+          <div className={`flex gap-3 mt-5 ${clientFacingOnly ? 'hidden' : ''}`}>
             {KNOWLEDGE_SECTIONS.map(section => (
               <button
                 key={section.id}

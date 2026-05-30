@@ -81,7 +81,7 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge }) => {
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge }) => {
+const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge, readOnly = false }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -89,6 +89,8 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
     opacity: isDragging ? 0.65 : 1,
     boxShadow: isDragging ? '0 16px 32px rgba(15, 23, 42, 0.16)' : undefined,
   };
+  // В read-only режиме не навешиваем drag-listeners: карточка только кликабельна.
+  const dragProps = readOnly ? {} : { ...attributes, ...listeners };
 
   const isUrgent = useMemo(() => {
     const diff = new Date(task.deadline) - new Date();
@@ -100,7 +102,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
 
   return (
     <div
-      ref={setNodeRef} style={style} {...attributes} {...listeners}
+      ref={setNodeRef} style={style} {...dragProps}
       onClick={() => onClick(task.id)}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
@@ -111,7 +113,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
       tabIndex={0}
       role="button"
       aria-label={`Открыть задачу: ${task.title}`}
-      className={`group relative p-4 rounded-xl border transition-all cursor-grab mb-3
+      className={`group relative p-4 rounded-xl border transition-all ${readOnly ? 'cursor-pointer' : 'cursor-grab'} mb-3
         ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
@@ -150,7 +152,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
   );
 };
 
-const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
+const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly = false }) => {
   const { setNodeRef } = useDroppable({ id: column.id });
   const isWaiting = column.id === 'waiting';
   const isClientUploaded = column.id === 'client-uploaded';
@@ -160,14 +162,16 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
     <div className="flex h-full min-h-0 flex-col w-72 min-w-70">
       <div className="flex items-center justify-between mb-4 px-1">
         <h3 className={`text-sm font-bold uppercase tracking-widest ${columnStyle.headerText}`}>{column.title}</h3>
-        <div className="flex items-center gap-1.5">
-          <button className={columnStyle.iconText} aria-label={`Настройки колонки ${column.title}`}>
-            <Settings2 size={16} />
-          </button>
-          <button className={columnStyle.iconText} aria-label={`Добавить задачу в ${column.title}`}>
-            <Plus size={18} />
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-1.5">
+            <button className={columnStyle.iconText} aria-label={`Настройки колонки ${column.title}`}>
+              <Settings2 size={16} />
+            </button>
+            <button className={columnStyle.iconText} aria-label={`Добавить задачу в ${column.title}`}>
+              <Plus size={18} />
+            </button>
+          </div>
+        )}
       </div>
       <div ref={setNodeRef} className={`flex-1 min-h-0 overflow-y-auto rounded-2xl p-2 custom-scrollbar ${columnStyle.container}`}>
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
@@ -179,6 +183,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge }) => {
               isWaitingCol={isWaiting}
               isClientUploadedCol={isClientUploaded}
               showProjectBadge={showProjectBadge}
+              readOnly={readOnly}
             />
           ))}
         </SortableContext>
@@ -246,6 +251,8 @@ export default function KanbanBoard({
   showColumnFilter = false,
   projectFilterLabel = null,
   onClearProjectFilter = null,
+  readOnly = false,
+  createLabel = null,
 }) {
   const columns = propColumns ?? COLUMNS;
   const [boardView, setBoardView] = useState('kanban');
@@ -316,13 +323,15 @@ export default function KanbanBoard({
     <div className="md:hidden flex flex-col h-full min-h-0">
       {/* Header мобильного вида */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap shrink-0">
-        <button
-          type="button"
-          onClick={onCreateTask}
-          className={`${UI_BUTTON_STYLES.primary} px-5 py-3 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 text-sm touch-manipulation active:scale-95 transition-all`}
-        >
-          <Plus size={18} /> Задача
-        </button>
+        {onCreateTask && (
+          <button
+            type="button"
+            onClick={onCreateTask}
+            className={`${UI_BUTTON_STYLES.primary} px-5 py-3 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 text-sm touch-manipulation active:scale-95 transition-all`}
+          >
+            <Plus size={18} /> {createLabel ?? 'Задача'}
+          </button>
+        )}
 
         {projectFilterLabel && onClearProjectFilter && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3C50B4]/5 border border-[#3C50B4]/20 rounded-xl text-[#3C50B4] shrink-0">
@@ -404,13 +413,15 @@ export default function KanbanBoard({
   const desktopView = (
     <div className="hidden md:flex h-full min-h-0 flex-col">
       <div className="mb-4 flex w-full flex-wrap items-center justify-between gap-4">
-        <button
-          type="button"
-          onClick={onCreateTask}
-          className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 active:scale-95 transition-all`}
-        >
-          <Plus size={20} /> Создать задачу
-        </button>
+        {onCreateTask && (
+          <button
+            type="button"
+            onClick={onCreateTask}
+            className={`${UI_BUTTON_STYLES.primary} px-8 py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 flex items-center gap-2 shrink-0 active:scale-95 transition-all`}
+          >
+            <Plus size={20} /> {createLabel ?? 'Создать задачу'}
+          </button>
+        )}
 
         {!showColumnFilter && <BoardProgress tasks={tasks} />}
 
@@ -490,6 +501,7 @@ export default function KanbanBoard({
                   tasks={tasks.filter((t) => t.status === column.id)}
                   onTaskClick={onTaskClick}
                   showProjectBadge={showProjectBadge}
+                  readOnly={readOnly}
                 />
               ))}
             </div>

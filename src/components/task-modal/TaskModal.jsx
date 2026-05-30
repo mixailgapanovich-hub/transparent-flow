@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, Link2, Loader2, MessageCircle, Send, Tag, Trash2, Users, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, CloudUpload, Link2, Loader2, MessageCircle, Quote, Send, Tag, Trash2, Users, X } from 'lucide-react';
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
+import AnchoredDescription from './AnchoredDescription';
 
 const TAG_OPTIONS = ['Блокирующая', 'Ключевая', 'Обычная'];
 
@@ -50,7 +51,7 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete, clientMode = false, onClientUpload }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -65,6 +66,8 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
   const [titleError, setTitleError] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
+  const [activeAnchor, setActiveAnchor] = useState(null); // {start,end,quote} для анкорного комментария
+  const commentInputRef = useRef(null);
   const [isRequestLoading, setIsRequestLoading] = useState(false);
   const [telegramLinkData, setTelegramLinkData] = useState(null);
   const [telegramLinkBusy, setTelegramLinkBusy] = useState(false);
@@ -145,8 +148,15 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
 
   const handleSendComment = () => {
     if (!commentDraft.trim()) return;
-    onSendComment?.(commentDraft.trim());
+    // 2-й аргумент (anchor) игнорируется PM-обработчиком, используется в clientMode.
+    onSendComment?.(commentDraft.trim(), activeAnchor ?? null);
     setCommentDraft('');
+    setActiveAnchor(null);
+  };
+
+  const startAnchoredComment = (anchor) => {
+    setActiveAnchor(anchor);
+    requestAnimationFrame(() => commentInputRef.current?.focus());
   };
 
   const handleRequestClient = async () => {
@@ -195,6 +205,199 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
 
   const statusBadgeClass = TASK_STATUS_BADGE[draft.status] ?? TASK_STATUS_BADGE.backlog;
   const tagBadgeClass = TASK_TAG_BADGE[draft.tag] ?? TASK_TAG_BADGE.Обычная;
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Клиентский режим: read-only детали + комментарии (в т.ч. на выделение).
+  // ──────────────────────────────────────────────────────────────────────────
+  if (clientMode) {
+    const anchoredComments = (task.comments ?? []).filter((c) => c.anchor);
+    return (
+      <div
+        className={`fixed inset-0 z-[60] transition-opacity duration-200
+          md:flex md:items-center md:justify-center md:bg-slate-900/30 md:p-4
+          ${isOpen ? 'opacity-100' : 'opacity-0'}`}
+        onClick={onClose}
+        aria-hidden="true"
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          className={`flex flex-col bg-white w-full h-full
+            md:max-h-[90vh] md:max-w-3xl md:rounded-3xl md:border md:border-slate-200 md:shadow-2xl md:h-auto
+            transition-all duration-200 ${isOpen ? 'opacity-100 translate-y-0 md:scale-100' : 'opacity-0 translate-y-4 md:scale-95'}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header className="flex items-center border-b border-slate-100 px-4 md:px-6 py-3 md:py-4 gap-3 shrink-0">
+            <button type="button" onClick={onClose} className="md:hidden p-1 -ml-1 text-slate-400" aria-label="Назад">
+              <ChevronLeft size={22} />
+            </button>
+            <span className={`rounded-md px-2 py-1 text-xs font-bold ${statusBadgeClass}`}>
+              {TASK_STATUS_LABEL[task.status]}
+            </span>
+            <span className={`rounded-md px-2 py-1 text-xs font-bold ${tagBadgeClass}`}>{task.tag}</span>
+            <div className="flex-1" />
+            <button type="button" onClick={onClose} className={`hidden md:flex p-2 ${UI_BUTTON_STYLES.ghost}`} aria-label="Закрыть">
+              <X size={18} />
+            </button>
+          </header>
+
+          <div className="flex-1 overflow-y-auto p-4 md:p-6 min-h-0">
+            <h2 className="text-lg font-black text-slate-900 leading-snug mb-4">{task.title}</h2>
+
+            {/* Сводка: дедлайн, приоритет, ответственные — только для информации */}
+            <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  <CalendarDays size={13} /> Дедлайн
+                </p>
+                <p className="mt-1 text-sm font-semibold text-slate-700">
+                  {task.deadline
+                    ? new Date(task.deadline).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+                    : 'Не задан'}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  <Tag size={13} /> Приоритет
+                </p>
+                <span className={`mt-1 inline-block rounded-md px-2 py-1 text-xs font-bold ${tagBadgeClass}`}>{task.tag}</span>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <SectionTitle icon={Users} title="Ответственные" subtitle="К ним можно обратиться по этой задаче" />
+              {(task.assignees ?? []).length === 0 ? (
+                <p className="mt-2 rounded-xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-400">
+                  Исполнитель пока не назначен.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {task.assignees.map((a) => (
+                    <div key={a.id} className="flex items-center gap-3 rounded-xl border border-slate-100 px-3 py-2">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#FFD700] text-[11px] font-black text-[#3C50B4] shrink-0">
+                        {a.initials}
+                      </div>
+                      <span className="text-sm font-semibold text-slate-700">{a.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <SectionTitle title="Описание" subtitle="Выделите текст, чтобы оставить комментарий" />
+            <div className="mt-2 rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+              <AnchoredDescription
+                text={task.description}
+                anchoredComments={anchoredComments}
+                onStartComment={startAnchoredComment}
+                onFocusComment={() => commentInputRef.current?.focus()}
+              />
+            </div>
+
+            {(task.files ?? []).length > 0 && (
+              <div className="mt-6">
+                <SectionTitle title="Файлы" />
+                <div className="mt-2 space-y-2">
+                  {task.files.map((file) => (
+                    <div key={file.id} className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3">
+                      <p className="text-sm text-slate-700">{file.name}</p>
+                      <p className="text-xs text-slate-400">{file.size}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {task.status === 'waiting' && onClientUpload && (
+              <button
+                type="button"
+                onClick={() => onClientUpload(task.id)}
+                className={`mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold ${UI_BUTTON_STYLES.primary}`}
+              >
+                <CloudUpload size={16} /> Прислать материалы по этой задаче
+              </button>
+            )}
+
+            <div className="mt-6">
+              <SectionTitle icon={MessageCircle} title="Комментарии" />
+              <div ref={commentsRef} className="mt-2 max-h-56 space-y-2 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50 p-3">
+                {(task.comments ?? []).length === 0 ? (
+                  <p className="text-sm text-slate-400">Пока нет сообщений.</p>
+                ) : (
+                  (task.comments ?? []).map((comment) => (
+                    <div
+                      key={comment.id}
+                      className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                        comment.author === 'client'
+                          ? 'ml-auto bg-[#3C50B4] text-white'
+                          : 'mr-auto bg-white text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      <p className={`text-[11px] font-semibold ${comment.author === 'client' ? 'text-blue-100' : 'text-slate-500'}`}>
+                        {comment.name} · {formatCommentDate(comment.at)}
+                      </p>
+                      {comment.anchor?.quote && (
+                        <p className={`mt-1 flex items-start gap-1 text-[11px] italic ${comment.author === 'client' ? 'text-blue-100/90' : 'text-slate-400'}`}>
+                          <Quote size={11} className="mt-0.5 shrink-0" />
+                          <span className="line-clamp-2">{comment.anchor.quote}</span>
+                        </p>
+                      )}
+                      <p className="mt-1">{comment.message}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {activeAnchor && (
+                <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <Quote size={13} className="mt-0.5 shrink-0" />
+                  <span className="flex-1 italic line-clamp-2">«{activeAnchor.quote}»</span>
+                  <button type="button" onClick={() => setActiveAnchor(null)} className="text-amber-500 hover:text-amber-700" aria-label="Убрать выделение">
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  ref={commentInputRef}
+                  value={commentDraft}
+                  onChange={(event) => setCommentDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') { event.preventDefault(); handleSendComment(); }
+                  }}
+                  placeholder={activeAnchor ? 'Комментарий к выделенному тексту…' : 'Написать комментарий…'}
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendComment}
+                  className={`${UI_BUTTON_STYLES.primary} p-2.5`}
+                  aria-label="Отправить комментарий"
+                >
+                  <Send size={15} />
+                </button>
+              </div>
+            </div>
+
+            {(task.history ?? []).length > 0 && (
+              <div className="mt-6">
+                <SectionTitle title="История" subtitle="Что происходило по задаче" />
+                <div className="mt-2 space-y-2">
+                  {task.history.map((entry, index) => (
+                    <div key={`${entry.date}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+                      <p className="text-xs font-semibold text-slate-500">{formatHistoryDate(entry.date)}</p>
+                      <p className="mt-1 text-sm text-slate-700">{entry.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     /* Backdrop: на десктопе — затемнение + центрирование; на мобилке — прозрачный */

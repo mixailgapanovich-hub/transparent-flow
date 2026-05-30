@@ -68,6 +68,28 @@ export async function applyGuestUpload(token, files, comment = '') {
     throw new HttpError(410, 'Срок действия ссылки истёк');
   }
 
+  return persistUpload(taskId, files, comment, { invalidateMagicLink: true });
+}
+
+/**
+ * Загрузка контента к задаче в клиентском кабинете (по постоянному проектному токену).
+ * Отличие от applyGuestUpload: нет одноразового magic-токена — авторизация уже выполнена
+ * clientAuth + проверкой принадлежности задачи проекту в clientService.
+ */
+export async function applyProjectUpload(taskId, files, comment = '', { clientId = null } = {}) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new HttpError(400, 'Не передано ни одного файла');
+  }
+  const taskRes = await pool.query('SELECT status FROM tasks WHERE id = $1', [taskId]);
+  if (taskRes.rowCount === 0) throw new HttpError(404, 'Задача не найдена');
+  if (taskRes.rows[0].status !== 'waiting') {
+    throw new HttpError(409, 'Эта задача сейчас не ожидает материалов');
+  }
+  return persistUpload(taskId, files, comment, { invalidateMagicLink: false, clientId });
+}
+
+/** Общее ядро: перемещает файлы в storage/<task_id>/, пишет в БД, меняет статус. */
+async function persistUpload(taskId, files, comment, { invalidateMagicLink, clientId = null }) {
   // Перемещаем файлы в storage/<task_id>/. Если что-то упадёт — чистим за собой.
   const finalDir = join(STORAGE_ROOT, taskId);
   await mkdir(finalDir, { recursive: true });
@@ -107,23 +129,23 @@ export async function applyGuestUpload(token, files, comment = '') {
     }
     if (comment?.trim()) {
       await c.query(
-        `INSERT INTO task_comments (task_id, author_type, author_name, message)
-         VALUES ($1, 'client', 'Клиент', $2)`,
-        [taskId, comment.trim()],
+        `INSERT INTO task_comments (task_id, author_type, author_id, author_name, message)
+         VALUES ($1, 'client', $2, 'Клиент', $3)`,
+        [taskId, clientId, comment.trim()],
       );
     }
     await c.query(
       `UPDATE tasks
           SET status = 'client-uploaded',
-              magic_link_token = NULL,
+              magic_link_token = CASE WHEN $2 THEN NULL ELSE magic_link_token END,
               updated_at = now()
         WHERE id = $1`,
-      [taskId],
+      [taskId, invalidateMagicLink],
     );
     await c.query(
-      `INSERT INTO task_events (task_id, actor_type, event_type, payload)
-       VALUES ($1, 'client', 'client_upload', $2::jsonb)`,
-      [taskId, JSON.stringify({ files: movedKeys.length, hasComment: Boolean(comment?.trim()) })],
+      `INSERT INTO task_events (task_id, actor_type, actor_id, event_type, payload)
+       VALUES ($1, 'client', $2, 'client_upload', $3::jsonb)`,
+      [taskId, clientId, JSON.stringify({ files: movedKeys.length, hasComment: Boolean(comment?.trim()) })],
     );
     await c.query(
       `INSERT INTO task_events (task_id, actor_type, event_type, payload)

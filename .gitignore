@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .claude/
+
+# Туннель для демо — большой бинарь, не храним в git (скачивается отдельно)
+cloudflared.exe
+cloudflared

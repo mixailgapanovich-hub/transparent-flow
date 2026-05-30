@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, LogOut } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
+import NotificationsPage from './components/notifications/NotificationsPage';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
 import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
+import ClientApp from './components/client/ClientApp';
 import LoginScreen from './components/LoginScreen';
 import { api } from './api/client';
 import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
@@ -34,6 +36,8 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isNotificationsPageOpen, setIsNotificationsPageOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
@@ -82,6 +86,44 @@ export default function App() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [currentUser]);
+
+  // Бейдж непрочитанного на колокольчике. Обновляем при логине и при закрытии
+  // дропдауна/страницы (после прочтения число должно упасть).
+  useEffect(() => {
+    // Залогинен? Бейдж виден только в приложении; после логаута показывается
+    // LoginScreen, поэтому устаревшее число невидимо — синхронный сброс не нужен.
+    if (!currentUser) return undefined;
+    let cancelled = false;
+    api.notifications.unreadCounts()
+      .then((c) => { if (!cancelled) setUnreadCount(c.total ?? 0); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentUser, isNotificationsPageOpen, isNotificationsOpen]);
+
+  // Открыть клиентский вид проекта в новой вкладке (PM-превью «как видит клиент»).
+  // Если токена ещё нет или доступ отозван — генерируем свежую ссылку.
+  const openClientView = async (project) => {
+    try {
+      let token = project.clientViewToken;
+      if (!token || project.clientViewEnabled === false) {
+        const res = await api.issueClientLink(project.id);
+        token = res.token;
+        // обновим локальный кэш проектов, чтобы кнопка дальше работала без повторной генерации
+        setProjects((prev) => prev.map((p) =>
+          p.id === project.id ? { ...p, clientViewToken: token, clientViewEnabled: true } : p));
+      }
+      const url = `${window.location.origin}/client/${token}`;
+      window.open(url, '_blank', 'noopener');
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast('success', 'Клиентская ссылка скопирована и открыта в новой вкладке');
+      } catch {
+        showToast('info', 'Клиентский вид открыт в новой вкладке');
+      }
+    } catch (err) {
+      showToast('error', 'Не удалось открыть клиентский вид: ' + (err.detail || err.message));
+    }
+  };
 
   const handleLogout = async () => {
     try { await api.logout(); } catch { /* ignore — лучше всё равно выкинем */ }
@@ -255,6 +297,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleHotkeys);
   }, [createTask]);
 
+  // Клиентский кабинет доступен без логина — по постоянному токену проекта в URL.
+  // Проверяем ДО гостевой страницы и до проверки сессии.
+  const clientMatch = window.location.pathname.match(/^\/client\/([^/]+)\/?$/);
+  if (clientMatch) {
+    return <ClientApp token={clientMatch[1]} />;
+  }
+
   // Гостевая страница доступна без логина — она по magic-токену.
   if (guestToken !== null) {
     return (
@@ -311,10 +360,19 @@ export default function App() {
                 aria-label="Уведомления"
               >
                 <Bell size={20} />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-black rounded-full border-2 border-white flex items-center justify-center">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </button>
               {isNotificationsOpen && (
-                <NotificationsDropdown isAdmin={isAdmin} onClose={() => setIsNotificationsOpen(false)} onToast={showToast} />
+                <NotificationsDropdown
+                  isAdmin={isAdmin}
+                  onClose={() => setIsNotificationsOpen(false)}
+                  onToast={showToast}
+                  onOpenAll={() => setIsNotificationsPageOpen(true)}
+                />
               )}
             </div>
 
@@ -393,7 +451,7 @@ export default function App() {
       onClearProjectFilter={() => setProjectFilter(null)}
     />
   ) : activeTab === 'projects' ? (
-    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} />
+    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} onClientView={openClientView} />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
   ) : (
@@ -495,6 +553,16 @@ export default function App() {
           closeTask();
         }}
       />
+
+      {isNotificationsPageOpen && (
+        <NotificationsPage
+          source={{ kind: 'pm' }}
+          isAdmin={isAdmin}
+          onToast={showToast}
+          onClose={() => setIsNotificationsPageOpen(false)}
+          onTaskCreated={(task) => setTasks((prev) => [task, ...prev])}
+        />
+      )}
 
       <SettingsModal
         isOpen={isSettingsOpen}

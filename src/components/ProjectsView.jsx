@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Layers, Plus, ArrowUpRight } from 'lucide-react';
+import { Calendar, Layers, Plus, ArrowUpRight, ExternalLink } from 'lucide-react';
 
 const PRIORITY_LABEL = {
   high: 'Высокий',
@@ -21,7 +21,7 @@ const STATUS_DOT = {
 
 const MAX_VISIBLE_MEMBERS = 3;
 
-export default function ProjectsView({ projects = [], onOpenProject }) {
+export default function ProjectsView({ projects = [], onOpenProject, onClientView }) {
   return (
     <div className="space-y-6 md:space-y-10 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
@@ -102,6 +102,15 @@ export default function ProjectsView({ projects = [], onOpenProject }) {
                     {PRIORITY_LABEL[project.priority] ?? project.priority}
                   </div>
                 </div>
+
+                {onClientView && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onClientView(project); }}
+                    className="mt-3 w-full flex items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[#3C50B4] hover:bg-[#3C50B4] hover:text-white transition-colors"
+                  >
+                    <ExternalLink size={13} /> Клиентский вид
+                  </button>
+                )}
               </div>
 
               {/* ── ДЕСКТОПНАЯ карточка (≥ md) ────────────────────────────── */}
@@ -179,6 +188,15 @@ export default function ProjectsView({ projects = [], onOpenProject }) {
                     {PRIORITY_LABEL[project.priority] ?? project.priority}
                   </div>
                 </div>
+
+                {onClientView && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onClientView(project); }}
+                    className="mt-4 w-full flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[#3C50B4] hover:bg-[#3C50B4] hover:text-white transition-colors"
+                  >
+                    <ExternalLink size={14} /> Открыть клиентский вид
+                  </button>
+                )}
               </div>
             </div>
           );

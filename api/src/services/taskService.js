@@ -57,6 +57,7 @@ function buildTaskDto(taskRow, related) {
     author: c.author_type, // 'pm' | 'client'
     name: c.author_name,
     message: c.message,
+    anchor: c.anchor ?? null, // {start, end, quote} для комментариев к выделению, иначе null
     at: c.created_at?.toISOString?.() ?? c.created_at,
   }));
 
@@ -119,7 +120,7 @@ async function fetchRelations(taskIds) {
       [taskIds],
     ),
     pool.query(
-      `SELECT id, task_id, author_type, author_name, message, created_at
+      `SELECT id, task_id, author_type, author_name, message, anchor, created_at
        FROM task_comments WHERE task_id = ANY($1::uuid[])
        ORDER BY created_at`,
       [taskIds],
@@ -153,14 +154,19 @@ async function fetchRelations(taskIds) {
   };
 }
 
-/** Список задач. Если задан projectSlug — фильтруем по нему. */
-export async function listTasks({ projectSlug } = {}) {
+/** Список задач. Если задан projectSlug — фильтруем по нему.
+ *  excludeInternal=true прячет внутренние задачи (для клиентского вида). */
+export async function listTasks({ projectSlug, excludeInternal = false } = {}) {
   const params = [];
-  let where = '';
+  const conds = [];
   if (projectSlug) {
     params.push(projectSlug);
-    where = `WHERE p.slug = $${params.length}`;
+    conds.push(`p.slug = $${params.length}`);
   }
+  if (excludeInternal) {
+    conds.push('NOT t.is_internal');
+  }
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
   const tasksRes = await pool.query(
     `SELECT t.id, t.title, t.description, t.status, t.tag, t.deadline,
@@ -373,20 +379,52 @@ export async function deleteTask(taskId, { actor } = {}) {
   if (res.rowCount === 0) throw new HttpError(404, 'Task not found');
 }
 
-export async function addComment(taskId, { authorType, authorName, message, authorId = null }) {
+export async function addComment(taskId, { authorType, authorName, message, authorId = null, anchor = null }) {
   if (!message?.trim()) throw new HttpError(400, 'message required');
   if (!['pm', 'client'].includes(authorType)) {
     throw new HttpError(400, 'authorType must be pm|client');
+  }
+
+  // anchor (если есть) — {start, end, quote}. Валидируем форму, чтобы не писать мусор.
+  let anchorJson = null;
+  if (anchor) {
+    const { start, end, quote } = anchor;
+    if (
+      Number.isInteger(start) && Number.isInteger(end) &&
+      start >= 0 && end >= start && typeof quote === 'string'
+    ) {
+      anchorJson = JSON.stringify({ start, end, quote: quote.slice(0, 2000) });
+    }
   }
 
   const id = await withTransaction(async (c) => {
     const exists = await c.query('SELECT 1 FROM tasks WHERE id = $1', [taskId]);
     if (exists.rowCount === 0) throw new HttpError(404, 'Task not found');
 
+    const ins = await c.query(
+      `INSERT INTO task_comments (task_id, author_type, author_id, author_name, message, anchor)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       RETURNING id`,
+      [taskId, authorType, authorId, authorName ?? authorType, message.trim(), anchorJson],
+    );
+
+    // Единое событие для центра уведомлений (внутри приложения, без рассылок).
+    const excerpt = message.trim().slice(0, 140);
     await c.query(
-      `INSERT INTO task_comments (task_id, author_type, author_id, author_name, message)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [taskId, authorType, authorId, authorName ?? authorType, message.trim()],
+      `INSERT INTO task_events (task_id, actor_type, actor_id, event_type, payload)
+       VALUES ($1, $2, $3, 'comment_added', $4::jsonb)`,
+      [
+        taskId,
+        authorType,
+        authorId,
+        JSON.stringify({
+          commentId: ins.rows[0].id,
+          authorType,
+          authorName: authorName ?? authorType,
+          excerpt,
+          anchorQuote: anchor?.quote ? String(anchor.quote).slice(0, 200) : null,
+        }),
+      ],
     );
     return taskId;
   });
