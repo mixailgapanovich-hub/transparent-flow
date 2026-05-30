@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    // SPA-фоллбек: /guest/:token и любые другие неизвестные пути → index.html
+    historyApiFallback: true,
     proxy: {
       // Все /api/* запросы Vite-сервера прокидываем на Express-бэк
       '/api': {

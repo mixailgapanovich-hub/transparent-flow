@@ -93,6 +93,10 @@ isSettingsOpen // boolean — SettingsModal visibility
 
 `selectedTask` is a derived value: `tasks.find(t => t.id === selectedTaskId) ?? null`.
 
+**Toast notifications** — `useToastState()` hook (defined inline in `App.jsx`) returns `{ toasts, showToast }`. `showToast(tone, message)` adds a 4-second auto-dismissing toast rendered by `ToastContainer` from `src/components/Toast.jsx`. Call `showToast` on any user-visible success or error.
+
+**Pending transitions** — `App.jsx` keeps a `pendingByTaskId` `useRef(Map)`. When a status transition fires, the target status is recorded; the UI update is skipped if the pending entry no longer matches when the response arrives (guards against out-of-order responses).
+
 **Task IDs are UUIDs** (from Postgres). Locally created tasks (hotkey `n`, before Iteration 3 lands writes) use `crypto.randomUUID()` so the format stays consistent. The `projectId` field on a task is still the **slug** (e.g. `'proj-eco'`), not the project UUID — because the dashboard filter compares against slugs.
 
 ### Layout
@@ -105,6 +109,8 @@ isSettingsOpen // boolean — SettingsModal visibility
 ```
 
 Modals (`TaskModal`, `SettingsModal`) render as conditional overlays from `App.jsx` — not portals, just conditionally mounted JSX at the end of the tree.
+
+On mobile (below `md` breakpoint), `Sidebar` is hidden and `BottomNav` (`src/components/BottomNav.jsx`) renders a fixed bottom tab bar with the same tab options.
 
 ### Tab/view routing
 
@@ -153,6 +159,9 @@ src/
 │   ├── SettingsModal.jsx            # Settings overlay
 │   ├── ProjectsView.jsx             # Projects tab (still uses mockProjects.js — wire later)
 │   ├── KnowledgeBase.jsx            # KB tab (skeletal)
+│   ├── GuestUploadPage.jsx          # Magic-link guest upload page (deadline countdown, file drag-drop, comment)
+│   ├── BottomNav.jsx                # Mobile fixed bottom tab bar (hidden on md+)
+│   ├── Toast.jsx                    # Toast notification stack; useToastState hook lives in App.jsx
 │   └── task-modal/
 │       └── TaskModal.jsx            # Full task detail/edit modal
 │
@@ -247,6 +256,7 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 | GET | `/api/admin/notifications` | ✅ | — | Last 30 system events for the bell dropdown (any logged-in PM) |
 | POST | `/api/admin/trigger-notifications?virtualNow=ISO` | ✅ admin | — | Manually runs one cascade tick with optional virtual-now override; returns `{processed, sent, failed, skipped}` |
 | GET | `/api/admin/health/metrics` | ✅ admin | — | Counts of notification events for the last 24h (for screenshots/diploma) |
+| POST | `/api/clients/:clientId/telegram-onboarding` | ✅ | — | `{deepLink, token}` — generates a one-time Telegram onboarding deep-link for the client |
 
 `GET /api/health` is also extended in Iter 6 with `scheduler.{running,lastTickAt,lastTickDurationMs,lastTickError,lastTickSummary}` and `channels.{telegram,email}` blocks — one call answers "is the cascade alive and which channels are wired".
 
@@ -358,6 +368,7 @@ The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 
   history: HistoryEntry[],  // [{date, text}] — audit trail
   magicLink: string,        // URL set when status === 'waiting', else ''
   isImportant: boolean,     // true when tag === 'Ключевая'
+  clientId: string | null,  // FK to clients table; set when task has a linked client contact
 }
 ```
 

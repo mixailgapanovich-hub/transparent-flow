@@ -38,6 +38,13 @@ export default function App() {
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
+  // 0) URL-based доступ к гостевой странице: /guest/<token>
+  //    Позволяет открыть magic-ссылку напрямую в браузере без логина.
+  useEffect(() => {
+    const match = window.location.pathname.match(/^\/guest\/(.+)$/);
+    if (match) setGuestToken(match[1]);
+  }, []);
+
   // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
   const [authChecked, setAuthChecked] = useState(false);
   useEffect(() => {

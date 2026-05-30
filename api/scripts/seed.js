@@ -147,6 +147,39 @@ async function seed() {
       }
     }
 
+    // 3b) Демо-задача в статусе 'waiting' — для немедленного показа каскадных уведомлений
+    //     Magic token фиксирован: http://localhost:5173/guest/deadbeef-cafe-babe-feed-000000000001
+    {
+      const demoTaskId = uuidFrom('task', 'demo-waiting-task');
+      const ecoProjectId = uuidFrom('project', 'proj-eco');
+      const adminUserId = uuidFrom('user', 'pm-1');
+      const demoDeadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await c.query(
+        `INSERT INTO tasks (id, project_id, title, description, status, tag, deadline, magic_link_token, magic_link_expires_at)
+         VALUES ($1, $2, $3, $4, 'waiting', 'Ключевая', $5, $6, $7)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          demoTaskId,
+          ecoProjectId,
+          '📋 Демо: Тексты для раздела «Услуги»',
+          'Клиенту необходимо предоставить финальные тексты для блока «Наши услуги»: описание каждой услуги (3–5 предложений), УТП и призыв к действию.',
+          demoDeadline,
+          'deadbeef-cafe-babe-feed-000000000001',
+          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        ],
+      );
+      await c.query(
+        `INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [demoTaskId, adminUserId],
+      );
+      await c.query(
+        `INSERT INTO task_events (task_id, actor_type, actor_id, event_type, payload)
+         VALUES ($1, 'system', $2, 'status_change', $3::jsonb)`,
+        [demoTaskId, adminUserId, JSON.stringify({ from: 'in-progress', to: 'waiting', text: 'Запрошен контент у клиента' })],
+      );
+      console.log('[seed] demo waiting task: ok');
+    }
+
     // 4) Зависимости — отдельным проходом, когда все задачи уже в БД
     for (const task of INITIAL_TASKS) {
       for (const depKey of task.dependsOn ?? []) {
