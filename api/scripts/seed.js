@@ -63,8 +63,8 @@ async function seed() {
         [clientId, p.client, `${p.client} — контакт`, `client+${p.id}@example.com`],
       );
       await c.query(
-        `INSERT INTO projects (id, slug, client_id, name, status, priority, category, deadline)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `INSERT INTO projects (id, slug, client_id, name, status, priority, category, deadline, client_view_token)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           uuidFrom('project', p.id),
           p.id,
@@ -74,6 +74,9 @@ async function seed() {
           p.priority,
           p.category,
           p.deadline,
+          // Детерминированный токен клиентского доступа — стабильная ссылка /client/<token>
+          // для демонстрации (можно перевыпустить из UI у PM).
+          uuidFrom('client_view', p.id),
         ],
       );
     }

@@ -8,10 +8,13 @@ import projectsRouter from './routes/projects.js';
 import tasksRouter from './routes/tasks.js';
 import usersRouter from './routes/users.js';
 import guestRouter from './routes/guest.js';
+import clientRouter from './routes/client.js';
 import authRouter from './routes/auth.js';
 import telegramRouter, { handleUpdate as handleTelegramUpdate } from './routes/telegram.js';
 import adminRouter from './routes/admin.js';
 import clientsRouter from './routes/clients.js';
+import notificationsRouter from './routes/notifications.js';
+import suggestionsRouter from './routes/suggestions.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
 import {
   initTelegram,
@@ -77,6 +80,7 @@ app.get('/api/health', async (_req, res) => {
 // Публичные:
 app.use('/api/auth', authRouter);
 app.use('/api/guest', guestRouter);
+app.use('/api/client', clientRouter); // клиентский кабинет по проектному токену
 app.use('/api/telegram', telegramRouter); // webhook от Telegram-серверов
 
 // Закрытые:
@@ -84,6 +88,8 @@ app.use('/api/projects', requireAuth, projectsRouter);
 app.use('/api/tasks',    requireAuth, tasksRouter);
 app.use('/api/users',    requireAuth, usersRouter);
 app.use('/api/clients',  requireAuth, clientsRouter);
+app.use('/api/notifications', requireAuth, notificationsRouter);
+app.use('/api/suggestions',   requireAuth, suggestionsRouter);
 app.use('/api/admin',    requireAuth, adminRouter); // role=admin проверяется внутри роута
 
 app.use((req, res) => {

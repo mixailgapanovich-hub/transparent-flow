@@ -5,6 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Разрешаем подключаться извне (нужно для cloudflared/ngrok-туннелей).
+    host: true,
+    // Разрешаем чужие Host-заголовки — иначе Vite 5+ блокирует туннельные домены.
+    allowedHosts: true,
     proxy: {
       // Все /api/* запросы Vite-сервера прокидываем на Express-бэк
       '/api': {

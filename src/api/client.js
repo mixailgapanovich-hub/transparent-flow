@@ -64,7 +64,24 @@ export const api = {
   acceptContent: (id) =>
     json('POST', `/api/tasks/${id}/transition`, { toStatus: 'done' }),
 
-  // admin / notifications
+  // Центр уведомлений (PM)
+  notifications: {
+    feed: ({ category, unread, limit = 30, offset = 0 } = {}) => {
+      const qs = new URLSearchParams();
+      if (category) qs.set('category', category);
+      if (unread) qs.set('unread', 'true');
+      qs.set('limit', limit);
+      qs.set('offset', offset);
+      return request(`/api/notifications?${qs.toString()}`);
+    },
+    unreadCounts: () => request('/api/notifications/unread-counts'),
+    markRead: (eventIds) => json('POST', '/api/notifications/read', { eventIds }),
+  },
+  // Предложения задач от клиента (PM)
+  acceptSuggestion: (id) => json('POST', `/api/suggestions/${id}/accept`),
+  rejectSuggestion: (id) => json('POST', `/api/suggestions/${id}/reject`),
+
+  // admin / notifications (старая лента — оставлена для совместимости)
   listNotifications: () => request('/api/admin/notifications'),
   triggerNotifications: ({ virtualNow } = {}) => {
     const qs = virtualNow ? `?virtualNow=${encodeURIComponent(virtualNow)}` : '';
@@ -75,6 +92,51 @@ export const api = {
   // clients
   requestTelegramLink: (clientId) =>
     json('POST', `/api/clients/${clientId}/telegram-onboarding`),
+
+  // PM: управление клиентской ссылкой на проект
+  issueClientLink: (projectId) =>
+    json('POST', `/api/projects/${projectId}/client-link`),
+  updateClientLink: (projectId, patch) =>
+    json('PATCH', `/api/projects/${projectId}/client-link`, patch),
+
+  // Клиентский кабинет (доступ по проектному токену, без логина)
+  client: {
+    get: (token) => request(`/api/client/${token}`),
+    comment: (token, taskId, { message, anchor = null }) =>
+      json('POST', `/api/client/${token}/tasks/${taskId}/comments`, { message, anchor }),
+    suggestTask: (token, { title, description }) =>
+      json('POST', `/api/client/${token}/suggest-task`, { title, description }),
+    question: (token, text) =>
+      json('POST', `/api/client/${token}/question`, { text }),
+    notifications: (token, { category, unread, limit = 30, offset = 0 } = {}) => {
+      const qs = new URLSearchParams();
+      if (category) qs.set('category', category);
+      if (unread) qs.set('unread', 'true');
+      qs.set('limit', limit);
+      qs.set('offset', offset);
+      return request(`/api/client/${token}/notifications?${qs.toString()}`);
+    },
+    markRead: (token, eventIds) =>
+      json('POST', `/api/client/${token}/notifications/read`, { eventIds }),
+    upload: (token, taskId, files, comment) => {
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      if (comment) fd.append('comment', comment);
+      return fetch(`/api/client/${token}/tasks/${taskId}/upload`, {
+        method: 'POST', body: fd, credentials: 'include',
+      }).then(async (res) => {
+        if (!res.ok) {
+          let detail = '';
+          try { detail = (await res.json())?.error ?? ''; } catch { /* ignore */ }
+          const err = new Error(`API ${res.status} ${detail}`.trim());
+          err.status = res.status;
+          err.detail = detail;
+          throw err;
+        }
+        return res.json();
+      });
+    },
+  },
 
   // guest / magic-link
   getGuestTask: (token) => request(`/api/guest/${token}`),
