@@ -61,6 +61,33 @@ export async function applyClientUpload(ctx, taskId, files, comment = '') {
   return applyProjectUpload(taskId, files, comment, { clientId: ctx.client.id });
 }
 
+/** Клиент одобряет результат на согласовании. */
+export async function approveTaskReview(ctx, taskId) {
+  await assertTaskInProject(ctx, taskId);
+  const { approveReview } = await import('./approvalService.js');
+  return approveReview(taskId, { clientId: ctx.client.id });
+}
+
+/** Клиент возвращает результат на доработку (комментарий обязателен). */
+export async function requestTaskChanges(ctx, taskId, comment) {
+  await assertTaskInProject(ctx, taskId);
+  const { requestChanges } = await import('./approvalService.js');
+  return requestChanges(taskId, { clientId: ctx.client.id, comment });
+}
+
+/** Метаданные файла для скачивания клиентом: файл должен быть в проекте токена и не внутренний. */
+export async function getClientFile(ctx, fileId) {
+  const { rows } = await pool.query(
+    `SELECT f.storage_key, f.filename
+       FROM task_files f
+       JOIN tasks t ON t.id = f.task_id
+      WHERE f.id = $1 AND t.project_id = $2 AND NOT t.is_internal`,
+    [fileId, ctx.project.id],
+  );
+  if (rows.length === 0) throw new HttpError(404, 'Файл не найден');
+  return rows[0];
+}
+
 /** Предложение задачи от клиента → строка task_suggestions + проектное событие. */
 export async function suggestTask(ctx, { title, description }) {
   if (!title?.trim()) throw new HttpError(400, 'Укажите название задачи');

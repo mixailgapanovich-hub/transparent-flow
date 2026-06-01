@@ -4,6 +4,7 @@ export const COLUMNS = [
   { id: 'in-progress', title: 'В работе' },
   { id: 'waiting', title: 'Ждём клиента' },
   { id: 'client-uploaded', title: 'Контент загружен' },
+  { id: 'review', title: 'На согласовании' },
   { id: 'done', title: 'Готово' },
 ];
 

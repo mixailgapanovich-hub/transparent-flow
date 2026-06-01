@@ -41,6 +41,8 @@ export default function App() {
   const [isSavingTask, setIsSavingTask] = useState(false);
   const [guestToken, setGuestToken] = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
+  // Намерение «отправить на согласование» из drag-and-drop: открыть задачу с раскрытой формой.
+  const [reviewIntentId, setReviewIntentId] = useState(null);
 
   // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
   const [authChecked, setAuthChecked] = useState(false);
@@ -148,6 +150,7 @@ export default function App() {
     // Если модалка закрыта без сохранения — выкидываем черновик из списка
     setTasks((prev) => prev.filter((t) => t.id !== DRAFT_ID));
     setSelectedTaskId(null);
+    setReviewIntentId(null);
   }, []);
 
   // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save
@@ -270,6 +273,26 @@ export default function App() {
     } catch (err) {
       showToast('error', 'Не удалось принять контент: ' + (err.detail || err.message));
     }
+  };
+
+  // Открыть задачу с раскрытой формой отправки на согласование (из drag-and-drop в колонку review).
+  const openSubmitForReview = (taskId) => {
+    setSelectedTaskId(taskId);
+    setReviewIntentId(taskId);
+  };
+
+  // PM-действия цикла согласования. Ошибки пробрасываем — TaskModal покажет тост.
+  const submitForReview = async (taskId, payload) => {
+    const updated = await api.submitForReview(taskId, payload);
+    replaceTask(updated);
+  };
+  const cancelReview = async (taskId) => {
+    const updated = await api.cancelReview(taskId);
+    replaceTask(updated);
+  };
+  const uploadTaskFiles = async (taskId, files) => {
+    const updated = await api.uploadTaskFiles(taskId, files);
+    replaceTask(updated);
   };
 
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
@@ -429,6 +452,7 @@ export default function App() {
       tasks={tasks.filter(t => !t.projectId || t.projectId === 'proj-eco')}
       setTasks={setTasks}
       onChangeStatus={updateTaskStatus}
+      onSubmitForReview={openSubmitForReview}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
@@ -440,6 +464,7 @@ export default function App() {
       tasks={projectFilter ? tasks.filter(t => t.projectId === projectFilter) : tasks}
       setTasks={setTasks}
       onChangeStatus={updateTaskStatus}
+      onSubmitForReview={openSubmitForReview}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
@@ -513,6 +538,20 @@ export default function App() {
         onAcceptContent={() => {
           if (!selectedTask) return;
           acceptContent(selectedTask.id);
+        }}
+        initialReviewOpen={reviewIntentId === selectedTaskId && selectedTaskId !== DRAFT_ID}
+        onSubmitForReview={async (payload) => {
+          if (!selectedTask) return;
+          await submitForReview(selectedTask.id, payload);
+          setReviewIntentId(null);
+        }}
+        onCancelReview={async () => {
+          if (!selectedTask) return;
+          await cancelReview(selectedTask.id);
+        }}
+        onUploadFiles={async (files) => {
+          if (!selectedTask) return;
+          await uploadTaskFiles(selectedTask.id, files);
         }}
         onSave={async (patch) => {
           // Черновик — создаём задачу через POST

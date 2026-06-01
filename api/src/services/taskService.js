@@ -44,12 +44,14 @@ function formatBytes(bytes) {
 
 /** Сборка одного DTO задачи из «сырых» строк. */
 function buildTaskDto(taskRow, related) {
-  const { filesByTask, commentsByTask, assigneesByTask, depsByTask, historyByTask } = related;
+  const { filesByTask, commentsByTask, assigneesByTask, depsByTask, historyByTask, approvalsByTask } = related;
 
   const files = (filesByTask.get(taskRow.id) ?? []).map((f) => ({
     id: f.id,
     name: f.filename,
     size: formatBytes(f.file_size) ?? '—',
+    uploadedBy: f.uploaded_by, // 'pm' | 'client'
+    approvalId: f.approval_id ?? null, // привязка к раунду согласования, иначе null
   }));
 
   const comments = (commentsByTask.get(taskRow.id) ?? []).map((c) => ({
@@ -78,6 +80,21 @@ function buildTaskDto(taskRow, related) {
     ? `https://client.transparent-flow.app/task/${taskRow.id}?token=${taskRow.magic_link_token}`
     : '';
 
+  // Раунды согласования (по возрастанию round). Каждому раунду подкладываем его файлы.
+  const approvals = (approvalsByTask?.get(taskRow.id) ?? []).map((a) => ({
+    id: a.id,
+    round: a.round,
+    status: a.status, // 'pending' | 'approved' | 'changes_requested' | 'withdrawn'
+    message: a.message ?? '',
+    link: a.link ?? '',
+    submittedAt: a.submitted_at?.toISOString?.() ?? a.submitted_at,
+    decidedAt: a.decided_at?.toISOString?.() ?? a.decided_at ?? null,
+    decisionComment: a.decision_comment ?? null,
+    files: files.filter((f) => f.approvalId === a.id),
+  }));
+  // Активный раунд (ждёт решения клиента) — есть, только пока задача в review.
+  const currentApproval = approvals.find((a) => a.status === 'pending') ?? null;
+
   return {
     id: taskRow.id,
     projectId: taskRow.project_slug, // фронт фильтрует по слагу
@@ -94,6 +111,8 @@ function buildTaskDto(taskRow, related) {
     history,
     magicLink,
     isImportant: taskRow.tag === 'Ключевая',
+    approvals,
+    currentApproval,
     // Привязка клиента — для UI «Подключить Telegram»
     clientId: taskRow.client_id ?? null,
     clientTelegramLinked: Boolean(taskRow.client_telegram_chat_id),
@@ -109,12 +128,13 @@ async function fetchRelations(taskIds) {
       assigneesByTask: new Map(),
       depsByTask: new Map(),
       historyByTask: new Map(),
+      approvalsByTask: new Map(),
     };
   }
 
-  const [files, comments, assignees, deps, history] = await Promise.all([
+  const [files, comments, assignees, deps, history, approvals] = await Promise.all([
     pool.query(
-      `SELECT id, task_id, filename, file_size, uploaded_at
+      `SELECT id, task_id, filename, file_size, uploaded_at, uploaded_by, approval_id
        FROM task_files WHERE task_id = ANY($1::uuid[])
        ORDER BY uploaded_at`,
       [taskIds],
@@ -143,6 +163,13 @@ async function fetchRelations(taskIds) {
        ORDER BY created_at`,
       [taskIds],
     ),
+    pool.query(
+      `SELECT id, task_id, round, status, message, link,
+              submitted_at, decided_at, decision_comment
+       FROM task_approvals WHERE task_id = ANY($1::uuid[])
+       ORDER BY round`,
+      [taskIds],
+    ),
   ]);
 
   return {
@@ -151,6 +178,7 @@ async function fetchRelations(taskIds) {
     assigneesByTask: groupBy(assignees.rows, 'task_id'),
     depsByTask: groupBy(deps.rows, 'task_id'),
     historyByTask: groupBy(history.rows, 'task_id'),
+    approvalsByTask: groupBy(approvals.rows, 'task_id'),
   };
 }
 
@@ -237,6 +265,15 @@ export async function transitionStatus(taskId, toStatus, { isAdmin = false, acto
     }
 
     if (fromStatus !== toStatus) {
+      // Статус review управляется ТОЛЬКО approvalService (submit/approve/changes/cancel),
+      // чтобы не появлялись «пустые» раунды и задача не закрывалась мимо акта приёмки.
+      if (toStatus === 'review') {
+        throw new HttpError(409, 'Перевод в «На согласовании» — только через «Отправить на согласование»');
+      }
+      if (fromStatus === 'review') {
+        throw new HttpError(409, 'Снять с согласования можно через одобрение клиента или кнопку «Отозвать»');
+      }
+
       await c.query(
         `UPDATE tasks SET status = $1, updated_at = now() WHERE id = $2`,
         [toStatus, taskId],
@@ -488,4 +525,40 @@ export async function requestClientContent(taskId, { actorId = null } = {}) {
     return taskId;
   });
   return getTaskById(id);
+}
+
+/** Загрузка файлов к задаче самим PM (uploaded_by='pm', без привязки к раунду). */
+export async function uploadTaskFiles(taskId, files, { actorId = null } = {}) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new HttpError(400, 'Не передано ни одного файла');
+  }
+  const exists = await pool.query('SELECT 1 FROM tasks WHERE id = $1', [taskId]);
+  if (exists.rowCount === 0) throw new HttpError(404, 'Task not found');
+
+  // Динамический импорт, чтобы избежать цикла guestService ↔ taskService.
+  const { moveUploadedFiles } = await import('./guestService.js');
+  const movedKeys = await moveUploadedFiles(taskId, files);
+
+  const id = await withTransaction(async (c) => {
+    for (const m of movedKeys) {
+      await c.query(
+        `INSERT INTO task_files (task_id, filename, file_size, storage_key, uploaded_by)
+         VALUES ($1, $2, $3, $4, 'pm')`,
+        [taskId, m.filename, m.size, m.storageKey],
+      );
+    }
+    await logHistory(c, taskId, `Менеджер загрузил файлы (${movedKeys.length})`, 'pm', actorId);
+    return taskId;
+  });
+  return getTaskById(id);
+}
+
+/** Метаданные файла задачи для скачивания (storage_key + оригинальное имя). 404 если не найден. */
+export async function getTaskFile(taskId, fileId) {
+  const { rows } = await pool.query(
+    `SELECT storage_key, filename FROM task_files WHERE id = $1 AND task_id = $2`,
+    [fileId, taskId],
+  );
+  if (rows.length === 0) throw new HttpError(404, 'Файл не найден');
+  return rows[0];
 }

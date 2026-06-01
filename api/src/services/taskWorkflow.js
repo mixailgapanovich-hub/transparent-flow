@@ -5,15 +5,16 @@
 export const STATUS_TRANSITIONS = {
   backlog: ['to-do'],
   'to-do': ['in-progress', 'backlog'],
-  'in-progress': ['waiting', 'done', 'to-do'],
+  'in-progress': ['waiting', 'review', 'done', 'to-do'],
   waiting: ['client-uploaded'],
-  'client-uploaded': ['in-progress', 'done', 'waiting'],
+  'client-uploaded': ['in-progress', 'review', 'done', 'waiting'],
+  review: ['done', 'in-progress'],
   done: [],
 };
 
 function adminRollbackStatuses(fromStatus) {
   if (fromStatus !== 'done') return null;
-  return ['backlog', 'to-do', 'in-progress', 'waiting', 'client-uploaded', 'done'];
+  return ['backlog', 'to-do', 'in-progress', 'waiting', 'client-uploaded', 'review', 'done'];
 }
 
 export function canTransitionStatus(fromStatus, toStatus, options = {}) {
