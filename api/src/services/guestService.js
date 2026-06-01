@@ -88,9 +88,13 @@ export async function applyProjectUpload(taskId, files, comment = '', { clientId
   return persistUpload(taskId, files, comment, { invalidateMagicLink: false, clientId });
 }
 
-/** Общее ядро: перемещает файлы в storage/<task_id>/, пишет в БД, меняет статус. */
-async function persistUpload(taskId, files, comment, { invalidateMagicLink, clientId = null }) {
-  // Перемещаем файлы в storage/<task_id>/. Если что-то упадёт — чистим за собой.
+/**
+ * Перемещает уже сохранённые multer-ом файлы из tmp в storage/<task_id>/.
+ * Возвращает массив { storageKey, filename, size } для записи в task_files.
+ * При ошибке чистит за собой (и перемещённые, и оставшиеся временные файлы).
+ * Выполняется ВНЕ транзакции — диск трогаем до COMMIT.
+ */
+export async function moveUploadedFiles(taskId, files) {
   const finalDir = join(STORAGE_ROOT, taskId);
   await mkdir(finalDir, { recursive: true });
 
@@ -110,12 +114,18 @@ async function persistUpload(taskId, files, comment, { invalidateMagicLink, clie
     for (const m of movedKeys) {
       await unlink(join(STORAGE_ROOT, m.storageKey)).catch(() => {});
     }
-    // И тем + удаляем оставшиеся «временные» файлы multer
+    // И + удаляем оставшиеся «временные» файлы multer
     for (const f of files) {
       await unlink(f.path).catch(() => {});
     }
     throw err;
   }
+  return movedKeys;
+}
+
+/** Общее ядро: перемещает файлы в storage/<task_id>/, пишет в БД, меняет статус. */
+async function persistUpload(taskId, files, comment, { invalidateMagicLink, clientId = null }) {
+  const movedKeys = await moveUploadedFiles(taskId, files);
 
   // Атомарно: пишем строки task_files, опциональный комментарий, меняем статус,
   // гасим токен, логируем событие, добавляем строку истории.

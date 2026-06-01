@@ -8,6 +8,7 @@ import { HttpError } from './taskService.js';
 // Категория вкладки → набор event_type.
 export const CATEGORY_EVENTS = {
   comments:   ['comment_added'],
+  approvals:  ['review_requested', 'review_approved', 'review_changes_requested'],
   escalation: ['notification_sent', 'notification_failed', 'cascade_exhausted', 'status_change'],
   acts:       ['verification_email_sent', 'verification_email_failed', 'content_accepted'],
   content:    ['client_upload'],
@@ -20,6 +21,8 @@ const ALL_PM_EVENTS = [...new Set(Object.values(CATEGORY_EVENTS).flat())];
 const CLIENT_EVENTS = [
   'comment_added',        // ответы PM (фильтр authorType='pm' ниже)
   'status_change',        // движение его задач
+  'review_requested',     // PM просит согласовать результат
+  'review_approved',      // подтверждение его же одобрения
   'content_accepted',
   'verification_email_sent',
   'notification_sent',    // напоминания, адресованные ему

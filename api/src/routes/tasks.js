@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { join } from 'node:path';
 import {
   listTasks,
   getTaskById,
@@ -9,10 +10,16 @@ import {
   addComment,
   addAssignee,
   requestClientContent,
+  uploadTaskFiles,
+  getTaskFile,
   HttpError,
 } from '../services/taskService.js';
+import { submitForReview, cancelReview } from '../services/approvalService.js';
+import { STORAGE_ROOT } from '../services/guestService.js';
+import { makeUploader, MAX_FILES, multerErrorHandler } from '../middleware/uploads.js';
 
 const router = Router();
+const upload = makeUploader();
 
 /** Универсальный обёрточный wrapper для async-handler-ов. */
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
@@ -75,5 +82,41 @@ router.post('/:id/assignees', wrap(async (req, res) => {
 router.post('/:id/request-client', wrap(async (req, res) => {
   res.json(await requestClientContent(req.params.id));
 }));
+
+// ── Цикл согласования (PM) ──────────────────────────────────────────────────
+
+// Отправить результат на согласование клиенту (status → review, новый раунд).
+// multipart: message, link, files[]
+router.post('/:id/submit-review', upload.array('files', MAX_FILES), wrap(async (req, res) => {
+  const updated = await submitForReview(req.params.id, {
+    message: req.body?.message ?? '',
+    link: req.body?.link ?? '',
+    files: req.files ?? [],
+    actorId: req.user?.id,
+  });
+  res.status(201).json(updated);
+}));
+
+// Отозвать задачу с согласования (status → in-progress, раунд withdrawn).
+router.post('/:id/cancel-review', wrap(async (req, res) => {
+  res.json(await cancelReview(req.params.id, { actorId: req.user?.id }));
+}));
+
+// ── Файлы ────────────────────────────────────────────────────────────────────
+
+// Загрузка файлов к задаче самим PM (multipart, поле files[]).
+router.post('/:id/files', upload.array('files', MAX_FILES), wrap(async (req, res) => {
+  const updated = await uploadTaskFiles(req.params.id, req.files ?? [], { actorId: req.user?.id });
+  res.status(201).json(updated);
+}));
+
+// Скачивание файла задачи (PM). Проверка принадлежности файла задаче — в сервисе.
+router.get('/:id/files/:fileId/download', wrap(async (req, res) => {
+  const { storage_key, filename } = await getTaskFile(req.params.id, req.params.fileId);
+  res.download(join(STORAGE_ROOT, storage_key), filename);
+}));
+
+// Локальный handler ошибок multer — до глобального error-middleware.
+router.use(multerErrorHandler);
 
 export default router;

@@ -81,7 +81,7 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge }) => {
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjectBadge, readOnly = false }) => {
+const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCol, showProjectBadge, readOnly = false }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -114,7 +114,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
       role="button"
       aria-label={`Открыть задачу: ${task.title}`}
       className={`group relative p-4 rounded-xl border transition-all ${readOnly ? 'cursor-pointer' : 'cursor-grab'} mb-3
-        ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
+        ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : isReviewCol ? 'bg-indigo-50/60 border-indigo-200 border-l-4 border-l-indigo-400 hover:border-indigo-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -133,8 +133,9 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, showProjec
         <Badge type={task.tag} />
         {isWaitingCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-600">Ждём клиента</span>}
         {isClientUploadedCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-600">Контент готов</span>}
+        {isReviewCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600">На согласовании</span>}
       </div>
-      <h4 className={`text-sm font-semibold mb-3 leading-tight ${isWaitingCol ? 'text-slate-500' : isClientUploadedCol ? 'text-teal-700' : 'text-slate-800'}`}>{task.title}</h4>
+      <h4 className={`text-sm font-semibold mb-3 leading-tight ${isWaitingCol ? 'text-slate-500' : isClientUploadedCol ? 'text-teal-700' : isReviewCol ? 'text-indigo-700' : 'text-slate-800'}`}>{task.title}</h4>
       <div className="flex items-center justify-between mt-auto">
         <div className={`flex items-center text-[11px] font-medium ${isOverdue ? 'text-red-500 animate-[pulse_2.4s_ease-in-out_infinite]' : isUrgent ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
           <Clock size={12} className="mr-1" />
@@ -156,6 +157,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly
   const { setNodeRef } = useDroppable({ id: column.id });
   const isWaiting = column.id === 'waiting';
   const isClientUploaded = column.id === 'client-uploaded';
+  const isReview = column.id === 'review';
   const columnStyle = TASK_COLUMN_STYLES[column.id] ?? TASK_COLUMN_STYLES.backlog;
 
   return (
@@ -182,6 +184,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly
               onClick={onTaskClick}
               isWaitingCol={isWaiting}
               isClientUploadedCol={isClientUploaded}
+              isReviewCol={isReview}
               showProjectBadge={showProjectBadge}
               readOnly={readOnly}
             />
@@ -246,6 +249,7 @@ export default function KanbanBoard({
   setActiveId,
   onCreateTask,
   onChangeStatus,
+  onSubmitForReview,
   columns: propColumns,
   showProjectBadge = false,
   showColumnFilter = false,
@@ -297,6 +301,16 @@ export default function KanbanBoard({
     if (!activeTask) return;
     const newStatus = columns.find(c => c.id === overId) ? overId : tasks.find(t => t.id === overId)?.status;
     if (!newStatus) {
+      setActiveId(null);
+      return;
+    }
+    // Колонка «На согласовании» — особый случай: голый перевод статуса создал бы
+    // review без раунда. Перехватываем и открываем форму отправки (через App).
+    // Перевод допустим только из in-progress / client-uploaded; из остальных — игнор.
+    if (newStatus === 'review' && activeTask.status !== 'review') {
+      if (onSubmitForReview && (activeTask.status === 'in-progress' || activeTask.status === 'client-uploaded')) {
+        onSubmitForReview(active.id);
+      }
       setActiveId(null);
       return;
     }

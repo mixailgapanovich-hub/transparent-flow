@@ -67,6 +67,30 @@ export default function ClientApp({ token }) {
     }
   };
 
+  const approveReview = async () => {
+    if (!selectedTask) return;
+    try {
+      const updated = await api.client.approve(token, selectedTask.id);
+      replaceTask(updated);
+      showToast('success', 'Вы одобрили результат — менеджеру отправлено подтверждение');
+    } catch (err) {
+      showToast('error', 'Не удалось одобрить: ' + (err.detail || err.message));
+      throw err;
+    }
+  };
+
+  const requestChanges = async (comment) => {
+    if (!selectedTask) return;
+    try {
+      const updated = await api.client.requestChanges(token, selectedTask.id, comment);
+      replaceTask(updated);
+      showToast('info', 'Отправлено на доработку менеджеру');
+    } catch (err) {
+      showToast('error', 'Не удалось отправить: ' + (err.detail || err.message));
+      throw err;
+    }
+  };
+
   const openUpload = (taskId) => { setUploadTaskId(taskId); setSelectedTaskId(null); setModal('send'); };
 
   if (loadError) {
@@ -177,9 +201,12 @@ export default function ClientApp({ token }) {
           key={selectedTask.id}
           task={selectedTask}
           clientMode
+          clientToken={token}
           onClose={() => setSelectedTaskId(null)}
           onSendComment={sendComment}
           onClientUpload={openUpload}
+          onApproveReview={approveReview}
+          onRequestChanges={requestChanges}
         />
       )}
 

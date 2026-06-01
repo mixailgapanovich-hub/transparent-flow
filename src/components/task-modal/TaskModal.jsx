@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, CloudUpload, Link2, Loader2, MessageCircle, Quote, Send, Tag, Trash2, Users, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, CloudUpload, Download, FileUp, Link2, Loader2, MessageCircle, Quote, Send, ShieldCheck, Tag, Trash2, Undo2, Users, X } from 'lucide-react';
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
@@ -51,7 +51,50 @@ function Toast({ tone = 'success', message }) {
   return <div className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tones[tone]}`}>{message}</div>;
 }
 
-export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete, clientMode = false, onClientUpload }) {
+const APPROVAL_STATUS = {
+  pending:           { label: 'Ждёт клиента', cls: 'bg-indigo-100 text-indigo-700' },
+  approved:          { label: 'Одобрено',     cls: 'bg-emerald-100 text-emerald-700' },
+  changes_requested: { label: 'На доработку', cls: 'bg-amber-100 text-amber-700' },
+  withdrawn:         { label: 'Отозвано',     cls: 'bg-slate-100 text-slate-500' },
+};
+
+// Карточка одного раунда согласования (используется на стороне PM и в клиентской панели).
+function ApprovalRoundCard({ round, fileHref }) {
+  const meta = APPROVAL_STATUS[round.status] ?? APPROVAL_STATUS.pending;
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-slate-600">Раунд {round.round}</span>
+        <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${meta.cls}`}>{meta.label}</span>
+      </div>
+      {round.message ? <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{round.message}</p> : null}
+      {round.link ? (
+        <a href={round.link} target="_blank" rel="noreferrer"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#3C50B4] hover:underline">
+          <Link2 size={12} /> Открыть результат
+        </a>
+      ) : null}
+      {(round.files ?? []).length > 0 && (
+        <div className="mt-2 space-y-1">
+          {round.files.map((f) => (
+            <a key={f.id} href={fileHref(f.id)} download
+              className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2 text-xs text-slate-700 transition hover:border-[#3C50B4]/40">
+              <span className="flex items-center gap-1.5 truncate"><Download size={12} className="shrink-0" /> {f.name}</span>
+              <span className="shrink-0 text-slate-400">{f.size}</span>
+            </a>
+          ))}
+        </div>
+      )}
+      {round.status === 'changes_requested' && round.decisionComment ? (
+        <p className="mt-2 flex items-start gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[12px] text-amber-800">
+          <Quote size={12} className="mt-0.5 shrink-0" /> {round.decisionComment}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete, clientMode = false, onClientUpload, onSubmitForReview, onCancelReview, onUploadFiles, onApproveReview, onRequestChanges, clientToken = null, initialReviewOpen = false }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -73,6 +116,24 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
   const [telegramLinkBusy, setTelegramLinkBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const commentsRef = useRef(null);
+
+  // Цикл согласования (PM-сторона): форма отправки на согласование.
+  const [reviewFormOpen, setReviewFormOpen] = useState(initialReviewOpen);
+  const [reviewMsg, setReviewMsg] = useState('');
+  const [reviewLink, setReviewLink] = useState('');
+  const [reviewFiles, setReviewFiles] = useState([]);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const fileInputRef = useRef(null);
+  // Клиентская сторона: форма «вернуть на доработку».
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [changesComment, setChangesComment] = useState('');
+  const [decisionBusy, setDecisionBusy] = useState(false);
+
+  // Ссылка на скачивание файла: клиент — по проектному токену, PM — по id задачи.
+  const fileHref = (fileId) =>
+    clientMode
+      ? `/api/client/${clientToken}/files/${fileId}/download`
+      : `/api/tasks/${task?.id}/files/${fileId}/download`;
 
   const requestClose = () => {
     if (!isDirty || window.confirm('Есть несохранённые изменения. Закрыть без сохранения?')) {
@@ -177,6 +238,73 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
     if (!commentsRef.current) return;
     commentsRef.current.scrollTop = commentsRef.current.scrollHeight;
   }, [task?.comments]);
+
+  const handleSubmitReview = async () => {
+    if (!onSubmitForReview) return;
+    setReviewBusy(true);
+    try {
+      await onSubmitForReview({ message: reviewMsg.trim(), link: reviewLink.trim(), files: reviewFiles });
+      setReviewFormOpen(false);
+      setReviewMsg(''); setReviewLink(''); setReviewFiles([]);
+      setDraft((prev) => ({ ...prev, status: 'review' }));
+      setToast({ tone: 'success', message: 'Отправлено клиенту на согласование' });
+      setTimeout(() => setToast(null), 2400);
+    } catch {
+      setToast({ tone: 'error', message: 'Не удалось отправить на согласование' });
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const handleCancelReview = async () => {
+    if (!onCancelReview) return;
+    setReviewBusy(true);
+    try {
+      await onCancelReview();
+      setDraft((prev) => ({ ...prev, status: 'in-progress' }));
+      setToast({ tone: 'info', message: 'Снято с согласования' });
+      setTimeout(() => setToast(null), 2400);
+    } catch {
+      setToast({ tone: 'error', message: 'Не удалось отозвать' });
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const handlePmFilePick = async (event) => {
+    const picked = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (picked.length === 0 || !onUploadFiles) return;
+    try {
+      await onUploadFiles(picked);
+      setToast({ tone: 'success', message: 'Файлы загружены' });
+      setTimeout(() => setToast(null), 2400);
+    } catch {
+      setToast({ tone: 'error', message: 'Не удалось загрузить файлы' });
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!onApproveReview) return;
+    setDecisionBusy(true);
+    try {
+      await onApproveReview();
+    } catch {
+      setDecisionBusy(false);
+    }
+  };
+
+  const handleRequestChanges = async () => {
+    if (!onRequestChanges || !changesComment.trim()) return;
+    setDecisionBusy(true);
+    try {
+      await onRequestChanges(changesComment.trim());
+      setChangesOpen(false);
+      setChangesComment('');
+    } catch {
+      setDecisionBusy(false);
+    }
+  };
 
   const handleRequestTelegramLink = async () => {
     if (!onRequestTelegramLink) return;
@@ -294,15 +422,79 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
               />
             </div>
 
+            {/* Панель согласования — клиент одобряет или возвращает на доработку */}
+            {task.currentApproval && task.status === 'review' && (
+              <div className="mt-6 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-indigo-600" />
+                  <h3 className="text-sm font-black text-indigo-800">Требуется ваше согласование</h3>
+                </div>
+                {task.currentApproval.message ? (
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{task.currentApproval.message}</p>
+                ) : null}
+                {task.currentApproval.link ? (
+                  <a href={task.currentApproval.link} target="_blank" rel="noreferrer"
+                    className={`mt-3 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${UI_BUTTON_STYLES.secondary}`}>
+                    <Link2 size={13} /> Открыть результат
+                  </a>
+                ) : null}
+                {(task.currentApproval.files ?? []).length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {task.currentApproval.files.map((f) => (
+                      <a key={f.id} href={fileHref(f.id)} download
+                        className="flex items-center justify-between rounded-lg border border-indigo-100 bg-white px-3 py-2 text-xs text-slate-700 transition hover:border-indigo-300">
+                        <span className="flex items-center gap-1.5 truncate"><Download size={12} className="shrink-0" /> {f.name}</span>
+                        <span className="shrink-0 text-slate-400">{f.size}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                {changesOpen ? (
+                  <div className="mt-3">
+                    <textarea
+                      value={changesComment}
+                      onChange={(e) => setChangesComment(e.target.value)}
+                      rows={3}
+                      placeholder="Опишите, что нужно поправить…"
+                      className="w-full resize-y rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20"
+                    />
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button type="button" disabled={!changesComment.trim() || decisionBusy} onClick={handleRequestChanges}
+                        className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50">
+                        <Undo2 size={15} /> Отправить на доработку
+                      </button>
+                      <button type="button" onClick={() => { setChangesOpen(false); setChangesComment(''); }}
+                        className={`${UI_BUTTON_STYLES.secondary} px-4 py-2 text-sm font-semibold`}>
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" disabled={decisionBusy} onClick={handleApprove}
+                      className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50">
+                      <Check size={15} /> Одобрить результат
+                    </button>
+                    <button type="button" disabled={decisionBusy} onClick={() => setChangesOpen(true)}
+                      className="flex items-center gap-1.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50">
+                      <Undo2 size={15} /> Вернуть на доработку
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {(task.files ?? []).length > 0 && (
               <div className="mt-6">
                 <SectionTitle title="Файлы" />
                 <div className="mt-2 space-y-2">
                   {task.files.map((file) => (
-                    <div key={file.id} className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3">
-                      <p className="text-sm text-slate-700">{file.name}</p>
-                      <p className="text-xs text-slate-400">{file.size}</p>
-                    </div>
+                    <a key={file.id} href={fileHref(file.id)} download
+                      className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3 transition hover:border-[#3C50B4]/40">
+                      <p className="flex items-center gap-1.5 truncate text-sm text-slate-700"><Download size={13} className="shrink-0 text-slate-400" /> {file.name}</p>
+                      <p className="shrink-0 text-xs text-slate-400">{file.size}</p>
+                    </a>
                   ))}
                 </div>
               </div>
@@ -543,8 +735,102 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
               </div>
             </div>
 
+            {/* Согласование с клиентом — отправка результата + история раундов */}
             <div className="mt-8">
-              <SectionTitle title="Файлы" subtitle="Просмотр прикреплённых материалов" />
+              <SectionTitle icon={ShieldCheck} title="Согласование с клиентом" subtitle="Клиент одобрит результат или вернёт на доработку" />
+
+              {(draft.status === 'in-progress' || draft.status === 'client-uploaded') && (
+                reviewFormOpen ? (
+                  <div className="mt-3 space-y-2 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+                    <textarea
+                      value={reviewMsg}
+                      onChange={(e) => setReviewMsg(e.target.value)}
+                      rows={3}
+                      placeholder="Что отправляем на согласование…"
+                      className="w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20"
+                    />
+                    <input
+                      value={reviewLink}
+                      onChange={(e) => setReviewLink(e.target.value)}
+                      type="url"
+                      placeholder="Ссылка (Figma / staging) — необязательно"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20"
+                    />
+                    <input
+                      type="file"
+                      multiple
+                      onChange={(e) => setReviewFiles(Array.from(e.target.files ?? []))}
+                      className="block w-full text-xs text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-slate-600"
+                    />
+                    {reviewFiles.length > 0 && (
+                      <p className="text-[11px] font-semibold text-slate-500">Выбрано файлов: {reviewFiles.length}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        disabled={reviewBusy}
+                        onClick={handleSubmitReview}
+                        className={`${UI_BUTTON_STYLES.primary} flex items-center gap-1.5 px-4 py-2 text-sm font-semibold`}
+                      >
+                        {reviewBusy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Отправить
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReviewFormOpen(false)}
+                        className={`${UI_BUTTON_STYLES.secondary} px-4 py-2 text-sm font-semibold`}
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setReviewFormOpen(true)}
+                    className={`mt-3 flex w-full items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold ${UI_BUTTON_STYLES.primary}`}
+                  >
+                    <ShieldCheck size={16} /> Отправить на согласование
+                  </button>
+                )
+              )}
+
+              {draft.status === 'review' && (
+                <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-xs font-semibold text-indigo-700">
+                  <p>Ждём решения клиента{task.currentApproval ? ` (раунд ${task.currentApproval.round})` : ''}.</p>
+                  <button
+                    type="button"
+                    disabled={reviewBusy}
+                    onClick={handleCancelReview}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+                  >
+                    <Undo2 size={13} /> Отозвать с согласования
+                  </button>
+                </div>
+              )}
+
+              {(task.approvals ?? []).length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {[...task.approvals].reverse().map((round) => (
+                    <ApprovalRoundCard key={round.id} round={round} fileHref={fileHref} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8">
+              <div className="flex items-start justify-between gap-2">
+                <SectionTitle title="Файлы" subtitle="Материалы по задаче" />
+                {onUploadFiles && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`${UI_BUTTON_STYLES.ghost} flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs font-semibold`}
+                  >
+                    <FileUp size={13} /> Загрузить
+                  </button>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handlePmFilePick} />
               <div className="mt-3 space-y-2">
                 {(task.files ?? []).length === 0 ? (
                   <p className="rounded-xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-400">
@@ -552,10 +838,17 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                   </p>
                 ) : (
                   (task.files ?? []).map((file) => (
-                    <div key={file.id} className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3">
-                      <p className="text-sm text-slate-700">{file.name}</p>
-                      <p className="text-xs text-slate-400">{file.size}</p>
-                    </div>
+                    <a
+                      key={file.id}
+                      href={fileHref(file.id)}
+                      download
+                      className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-3 transition hover:border-[#3C50B4]/40"
+                    >
+                      <p className="flex items-center gap-1.5 truncate text-sm text-slate-700">
+                        <Download size={13} className="shrink-0 text-slate-400" /> {file.name}
+                      </p>
+                      <p className="shrink-0 text-xs text-slate-400">{file.size}</p>
+                    </a>
                   ))
                 )}
               </div>
@@ -588,11 +881,20 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
               onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20"
             >
-              {COLUMNS.filter((column) => allowedStatuses.includes(column.id)).map((column) => (
-                <option key={column.id} value={column.id}>
-                  {TASK_STATUS_LABEL[column.id] ?? column.title}
-                </option>
-              ))}
+              {COLUMNS.filter((column) => allowedStatuses.includes(column.id))
+                .filter((column) => {
+                  // 'review' управляется только кнопкой «Отправить на согласование»,
+                  // а выход из review — одобрением клиента или кнопкой «Отозвать».
+                  if (column.id === draft.status) return true;
+                  if (column.id === 'review') return false;
+                  if (draft.status === 'review') return false;
+                  return true;
+                })
+                .map((column) => (
+                  <option key={column.id} value={column.id}>
+                    {TASK_STATUS_LABEL[column.id] ?? column.title}
+                  </option>
+                ))}
             </select>
 
             <label className="mb-2 mt-6 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">

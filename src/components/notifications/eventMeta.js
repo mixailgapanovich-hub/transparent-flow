@@ -3,6 +3,7 @@
 export const CATEGORY_TABS = [
   { id: 'all', label: 'Все' },
   { id: 'comments', label: 'Комментарии' },
+  { id: 'approvals', label: 'Согласования' },
   { id: 'escalation', label: 'Эскалация' },
   { id: 'acts', label: 'Акты' },
   { id: 'content', label: 'Контент' },
@@ -21,6 +22,9 @@ const DOTS = {
   client_upload: 'bg-teal-400',
   task_suggested: 'bg-amber-400',
   client_question: 'bg-violet-400',
+  review_requested: 'bg-indigo-500',
+  review_approved: 'bg-emerald-500',
+  review_changes_requested: 'bg-amber-500',
 };
 
 export function eventDot(ev) {
@@ -65,6 +69,12 @@ export function describeEvent(ev) {
       return `Акт не отправлен — «${title}»: ${p.error || 'без сообщения'}`;
     case 'content_accepted':
       return `Контент принят — «${title}»`;
+    case 'review_requested':
+      return `Отправлено на согласование клиенту — «${title}»`;
+    case 'review_approved':
+      return `Клиент одобрил результат — «${title}»`;
+    case 'review_changes_requested':
+      return `Клиент вернул на доработку${p.comment ? `: «${p.comment}»` : ''} — «${title}»`;
     case 'client_upload':
       return `Клиент загрузил материалы — «${title}»`;
     case 'task_suggested':

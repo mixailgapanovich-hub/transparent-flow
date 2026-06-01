@@ -1,14 +1,12 @@
 // Публичный роутер клиентского кабинета. Авторизация — проектный токен (clientAuth).
-// Всё read-only, кроме: комментарии, загрузка контента, предложения задач, вопросы.
+// Всё read-only, кроме: комментарии, загрузка контента, предложения задач, вопросы,
+// и решения по согласованию (одобрить / вернуть на доработку).
 
 import { Router } from 'express';
-import multer from 'multer';
-import { randomUUID } from 'node:crypto';
-import { extname, join, dirname } from 'node:path';
-import { mkdir } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { clientAuth } from '../middleware/clientAuth.js';
-import { HttpError } from '../services/taskService.js';
+import { makeUploader, MAX_FILES, multerErrorHandler } from '../middleware/uploads.js';
+import { STORAGE_ROOT } from '../services/guestService.js';
 import {
   getProjectView,
   addClientComment,
@@ -17,47 +15,13 @@ import {
   askQuestion,
   getClientNotifications,
   markClientRead,
+  approveTaskReview,
+  requestTaskChanges,
+  getClientFile,
 } from '../services/clientService.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const TMP_DIR = join(__dirname, '..', '..', 'storage', '.tmp');
-
-const ALLOWED_EXT = new Set([
-  '.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg',
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.txt', '.csv', '.md',
-  '.zip', '.7z', '.rar',
-  '.mp4', '.mov',
-]);
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const MAX_FILES = 10;
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    mkdir(TMP_DIR, { recursive: true })
-      .then(() => cb(null, TMP_DIR))
-      .catch(cb);
-  },
-  filename: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    cb(null, `${randomUUID()}${ext || ''}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
-  fileFilter: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase();
-    if (!ALLOWED_EXT.has(ext)) {
-      cb(new HttpError(415, `Тип файла ${ext || '(без расширения)'} не разрешён`));
-      return;
-    }
-    cb(null, true);
-  },
-});
-
 const router = Router();
+const upload = makeUploader();
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
 // Все маршруты проходят clientAuth — токен в :token.
@@ -84,6 +48,23 @@ router.post('/:token/tasks/:taskId/upload', upload.array('files', MAX_FILES), wr
     req.body?.comment ?? '',
   );
   res.status(201).json(updated);
+}));
+
+// Решение по согласованию: одобрить (→ done + акт).
+router.post('/:token/tasks/:taskId/approval/approve', wrap(async (req, res) => {
+  res.json(await approveTaskReview(req.clientCtx, req.params.taskId));
+}));
+
+// Решение по согласованию: вернуть на доработку (→ in-progress). comment обязателен.
+router.post('/:token/tasks/:taskId/approval/changes', wrap(async (req, res) => {
+  const { comment } = req.body ?? {};
+  res.json(await requestTaskChanges(req.clientCtx, req.params.taskId, comment));
+}));
+
+// Скачивание файла клиентом (только файлы задач его проекта, не внутренних).
+router.get('/:token/files/:fileId/download', wrap(async (req, res) => {
+  const { storage_key, filename } = await getClientFile(req.clientCtx, req.params.fileId);
+  res.download(join(STORAGE_ROOT, storage_key), filename);
 }));
 
 // Предложить задачу.
@@ -116,16 +97,6 @@ router.post('/:token/notifications/read', wrap(async (req, res) => {
 }));
 
 // Локальный обработчик ошибок multer (до глобального).
-router.use((err, _req, res, next) => {
-  if (err && err.name === 'MulterError') {
-    const msg = err.code === 'LIMIT_FILE_SIZE'
-      ? 'Файл слишком большой (максимум 50 МБ)'
-      : err.code === 'LIMIT_FILE_COUNT'
-        ? `Слишком много файлов (максимум ${MAX_FILES})`
-        : `Ошибка загрузки: ${err.message}`;
-    return res.status(413).json({ error: msg });
-  }
-  next(err);
-});
+router.use(multerErrorHandler);
 
 export default router;

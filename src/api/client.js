@@ -25,6 +25,20 @@ async function request(path, options = {}) {
 const json = (method, path, body) =>
   request(path, { method, body: body !== undefined ? JSON.stringify(body) : undefined });
 
+// POST multipart/form-data. НЕ ставим Content-Type руками — браузер сам выставит boundary.
+async function postForm(path, fd) {
+  const res = await fetch(path, { method: 'POST', body: fd, credentials: 'include' });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error ?? ''; } catch { /* ignore */ }
+    const err = new Error(`API ${res.status} ${detail}`.trim());
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+  return res.json();
+}
+
 export const api = {
   // auth
   login: (email, password) => json('POST', '/api/auth/login', { email, password }),
@@ -63,6 +77,23 @@ export const api = {
     json('POST', `/api/tasks/${id}/request-client`),
   acceptContent: (id) =>
     json('POST', `/api/tasks/${id}/transition`, { toStatus: 'done' }),
+
+  // Цикл согласования (PM)
+  submitForReview: (id, { message = '', link = '', files = [] } = {}) => {
+    const fd = new FormData();
+    if (message) fd.append('message', message);
+    if (link) fd.append('link', link);
+    for (const f of files) fd.append('files', f);
+    return postForm(`/api/tasks/${id}/submit-review`, fd);
+  },
+  cancelReview: (id) => json('POST', `/api/tasks/${id}/cancel-review`),
+  uploadTaskFiles: (id, files) => {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    return postForm(`/api/tasks/${id}/files`, fd);
+  },
+  // Прямые ссылки на скачивание (открываем в новой вкладке / <a download>).
+  taskFileDownloadUrl: (id, fileId) => `/api/tasks/${id}/files/${fileId}/download`,
 
   // Центр уведомлений (PM)
   notifications: {
@@ -104,6 +135,12 @@ export const api = {
     get: (token) => request(`/api/client/${token}`),
     comment: (token, taskId, { message, anchor = null }) =>
       json('POST', `/api/client/${token}/tasks/${taskId}/comments`, { message, anchor }),
+    // Согласование: одобрить / вернуть на доработку.
+    approve: (token, taskId) =>
+      json('POST', `/api/client/${token}/tasks/${taskId}/approval/approve`),
+    requestChanges: (token, taskId, comment) =>
+      json('POST', `/api/client/${token}/tasks/${taskId}/approval/changes`, { comment }),
+    fileDownloadUrl: (token, fileId) => `/api/client/${token}/files/${fileId}/download`,
     suggestTask: (token, { title, description }) =>
       json('POST', `/api/client/${token}/suggest-task`, { title, description }),
     question: (token, text) =>
