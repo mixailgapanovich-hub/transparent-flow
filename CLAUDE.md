@@ -6,9 +6,14 @@ This file provides guidance to Claude Code when working with this repository.
 
 **"Прозрачный поток"** (Transparent Flow) — Kanban demo for a digital agency task management system. Built as a diploma thesis prototype for **АденаДиджитал**, a digital agency that manages creative/web projects for clients.
 
-**Scope:** React frontend + Express/PostgreSQL backend. MVP closed after Iteration 5 (drag-drop / comments / assignees / magic-link guest upload / bcrypt+JWT auth / role-based FSM). Iteration 6 adds the cascading-notifications module (FR-04) and the legal "content accepted" act from chapter 4.2: a `node-cron` scheduler, three-level escalation by business days (Day 0 / +2 BD / +4 BD / exhausted at 5+), Telegram bot (real, via BotFather, polling-mode by default) + SMTP/Ethereal email channels, "Accept content" button in TaskModal that sends a confirmation email to the client, plus admin-only demo controls in the notifications dropdown that compress days into seconds via a virtualNow override.
+**Scope:** React frontend + Express/PostgreSQL backend. MVP closed after Iteration 5 (drag-drop / comments / assignees / magic-link guest upload / bcrypt+JWT auth / role-based FSM). Layers added on top:
 
-**Business problem it solves:** Agency teams lose track of client tasks across email chains. This dashboard gives PMs a central board; clients get a read-only "magic link" to see their task status and upload materials without needing an account.
+- **Iteration 6 — cascading notifications (FR-04)** + legal "content accepted" act (chapter 4.2): a `node-cron` scheduler, three-level escalation by business days (Day 0 / +2 BD / +4 BD / exhausted at 5+), Telegram bot (real, via BotFather, polling-mode by default) + SMTP/Ethereal email channels, "Accept content" button in TaskModal that sends a confirmation email to the client, plus admin-only demo controls in the notifications dropdown that compress days into seconds via a virtualNow override.
+- **Stage 1 — client cabinet** (migration 004): a permanent per-project access token (`projects.client_view_token`) gives the client a read-only `/client/:token` SPA — Kanban + Mind Map + knowledge base, Google-Docs-style anchored comments on the task description, plus actions: send content (file upload), ask a question, suggest a task. Internal tasks (`tasks.is_internal`) are hidden from the client.
+- **Stage 2 — notifications center** (migration 005): an in-app feed built over `task_events` with category tabs, unread badges and read-tracking (`notification_reads`), for both PM and client. **No external blast** for comments/statuses/suggestions — Telegram/Email stay only for the cascade reminders (waiting tasks) and the acceptance act.
+- **Approval loop** (migration 006): a `review` status + `task_approvals` rounds. PM submits the deliverable (note + link + files), the client **approves** (→ `done` + acceptance act) or **requests changes** (→ `in-progress`, next round). File upload/download for both PM and client.
+
+**Business problem it solves:** Agency teams lose track of client tasks across email chains. This dashboard gives PMs a central board; the client gets a registration-free read-only window into the project (permanent link), can upload materials and approve results, and is nudged automatically when they stall.
 
 ---
 
@@ -81,17 +86,26 @@ All state lives in `src/App.jsx` via `useState`. No Redux, no Zustand, no Contex
 
 ```js
 // App.jsx state
-isAdmin        // boolean — true by default; unlocks admin status rollbacks
+currentUser    // null = unchecked | undefined = logged out | object = authed user; isAdmin = role==='admin'
 activeTab      // 'dashboard' | 'projects' | 'kb' | 'tasks'
-tasks          // Task[] — fetched from GET /api/tasks on mount
+tasks          // Task[] — fetched from GET /api/tasks once currentUser is set
 tasksLoading   // boolean — true during initial fetch
 tasksError     // string | null — API error message, shown over the board
+projects       // Project[] — from GET /api/projects (ProjectsView, client-link)
+team           // User[] — from GET /api/users (assignee dropdown in TaskModal)
+botUsername    // string | null — Telegram bot username for client deep-link
 activeId       // dnd-kit active drag item id
 selectedTaskId // string | null (UUID) — opens TaskModal when set
-isSettingsOpen // boolean — SettingsModal visibility
+reviewIntentId // string | null — task to open with the "submit for review" form pre-opened (DnD → review)
+guestToken     // string | null — renders GuestUploadPage (magic-link) when set
+projectFilter  // slug | null — filters the tasks tab to one project
+unreadCount    // number — bell badge; from GET /api/notifications/unread-counts
+isNotificationsOpen / isNotificationsPageOpen / isSettingsOpen   // overlay visibility
 ```
 
 `selectedTask` is a derived value: `tasks.find(t => t.id === selectedTaskId) ?? null`.
+
+**Two entry points before login** (checked in `App.jsx` before the auth gate): `/client/:token` → `ClientApp` (client cabinet, no login); a set `guestToken` → `GuestUploadPage` (magic-link upload, no login). Everything else requires the `tflow_session` cookie and renders `LoginScreen` until authed.
 
 **Task IDs are UUIDs** (from Postgres). Locally created tasks (hotkey `n`, before Iteration 3 lands writes) use `crypto.randomUUID()` so the format stays consistent. The `projectId` field on a task is still the **slug** (e.g. `'proj-eco'`), not the project UUID — because the dashboard filter compares against slugs.
 
@@ -146,15 +160,29 @@ src/
 │   └── client.js                    # Thin fetch wrapper. Exposes api.listTasks / api.getTask / etc.
 │
 ├── components/
-│   ├── KanbanBoard.jsx              # @dnd-kit drag-drop board, 5 columns
+│   ├── KanbanBoard.jsx              # @dnd-kit drag-drop board, 6 columns; intercepts drop→review
 │   ├── TasksMindMapView.jsx         # @xyflow/react dependency graph
 │   ├── Sidebar.jsx                  # Left nav (96px), tab switcher
+│   ├── BottomNav.jsx                # Mobile bottom navigation
 │   ├── RightPanel.jsx               # Right panel (collapsible)
 │   ├── SettingsModal.jsx            # Settings overlay
-│   ├── ProjectsView.jsx             # Projects tab (still uses mockProjects.js — wire later)
-│   ├── KnowledgeBase.jsx            # KB tab (skeletal)
+│   ├── LoginScreen.jsx              # Email/password login (sets cookie)
+│   ├── Toast.jsx                    # useToastState() + ToastContainer
+│   ├── GuestUploadPage.jsx          # Magic-link guest upload page (no login)
+│   ├── NotificationsDropdown.jsx    # Bell dropdown: preview + admin cascade demo controls
+│   ├── ProjectsView.jsx             # Projects tab; "Клиентский вид" button (onClientView)
+│   ├── KnowledgeBase.jsx            # KB tab (clientFacingOnly flag for client cabinet)
+│   ├── client/
+│   │   ├── ClientApp.jsx            # Client cabinet shell (/client/:token), read-only board + actions
+│   │   ├── SendContentModal.jsx     # Client: pick task + upload files
+│   │   ├── AskQuestionModal.jsx     # Client: ask a question
+│   │   └── SuggestTaskModal.jsx     # Client: suggest a task
+│   ├── notifications/
+│   │   ├── NotificationsPage.jsx    # Full-screen notifications center (PM + client)
+│   │   └── eventMeta.js             # CATEGORY_TABS, describeEvent, eventDot, relativeTime
 │   └── task-modal/
-│       └── TaskModal.jsx            # Full task detail/edit modal
+│       ├── TaskModal.jsx            # Task detail/edit modal; PM + clientMode; approval UI
+│       └── AnchoredDescription.jsx  # Text-selection → anchored comment popover + highlights
 │
 ├── data/
 │   ├── mockData.js                  # COLUMNS export still used; INITIAL_TASKS/DEFAULT_TEAM consumed by seed only
@@ -175,8 +203,13 @@ api/
 ├── package.json                     # Express, pg, cors, morgan, dotenv
 ├── .env.example / .env              # DATABASE_URL, PORT, CORS_ORIGIN
 │
-├── migrations/
-│   └── 001_init.sql                 # Initial schema (tracked in schema_migrations table)
+├── migrations/                      # Append-only; tracked in schema_migrations
+│   ├── 001_init.sql                 # Initial schema
+│   ├── 002_notifications.sql        # Notification audit columns/events
+│   ├── 003_telegram_onboarding.sql  # clients.telegram_chat_id + onboarding tokens
+│   ├── 004_client_view.sql          # Stage 1: client_view_token, is_internal, anchor, task_suggestions, project-scoped events
+│   ├── 005_notifications_center.sql # Stage 2: notification_reads
+│   └── 006_approvals.sql            # Approval loop: review status, task_approvals, task_files.approval_id
 │
 ├── scripts/
 │   ├── migrate.js                   # Runs *.sql files alphabetically, --reset drops public schema
@@ -187,23 +220,32 @@ api/
     ├── db/
     │   └── pool.js                  # pg.Pool + withTransaction(fn) helper
     ├── middleware/
-    │   └── auth.js                  # attachUser (reads cookie → req.user) + requireAuth (401 guard)
+    │   ├── auth.js                  # attachUser (reads cookie → req.user) + requireAuth (401 guard)
+    │   ├── clientAuth.js            # resolves /client/:token → req.clientCtx {project, client}
+    │   └── uploads.js               # shared multer factory makeUploader() + multerErrorHandler
     ├── routes/
     │   ├── auth.js                  # POST /login, POST /logout, GET /me
-    │   ├── projects.js              # GET /api/projects
-    │   ├── tasks.js                 # GET/POST/PATCH/DELETE /api/tasks + mutation sub-routes
+    │   ├── projects.js              # GET /api/projects + client-link issue/update
+    │   ├── tasks.js                 # tasks CRUD + transition/comments/assignees/request-client/submit-review/cancel-review/files
     │   ├── users.js                 # GET /api/users
-    │   ├── guest.js                 # GET /api/guest/:token, POST upload (multer + filters)
+    │   ├── clients.js               # client telegram-onboarding
+    │   ├── client.js                # PUBLIC client cabinet (clientAuth): view, comment, upload, approve/changes, notifications, download
+    │   ├── notifications.js         # PM notifications center: feed, unread-counts, read
+    │   ├── suggestions.js           # PM: accept/reject client task suggestions
+    │   ├── guest.js                 # GET /api/guest/:token, POST upload (shared uploader)
     │   ├── telegram.js              # POST /api/telegram/webhook/:secret + handleUpdate (shared with polling)
     │   └── admin.js                 # /trigger-notifications, /notifications, /health/metrics
     ├── scheduler.js                 # node-cron, calls notificationService.tick()
     └── services/
         ├── authService.js           # login(), signToken/verifyToken, AUTH_COOKIE + COOKIE_OPTIONS
-        ├── projectService.js        # listProjects() — computes tasksDone/progress from DB
-        ├── taskService.js           # listTasks, getTaskById, all mutation helpers, exports HttpError
+        ├── projectService.js        # listProjects(); client-link token issue/toggle
+        ├── taskService.js           # listTasks, getTaskById, mutations, uploadTaskFiles/getTaskFile, HttpError
         ├── taskWorkflow.js          # FSM, mirror of frontend taskWorkflow.js
+        ├── approvalService.js       # submitForReview / approveReview / requestChanges / cancelReview
         ├── userService.js           # listUsers() — used by team dropdown
-        ├── guestService.js          # getTaskByToken, applyGuestUpload — owns storage/ writes
+        ├── guestService.js          # getTaskByToken, applyGuestUpload, applyProjectUpload, moveUploadedFiles, STORAGE_ROOT
+        ├── clientService.js         # client cabinet logic (scoped to one project via clientCtx)
+        ├── notificationsFeed.js     # in-app feed: CATEGORY_EVENTS, listForPm/listForClient, unreadCounts, markRead, accept/reject suggestion
         ├── businessDays.js          # Mon–Fri working-day diff
         ├── notificationTemplates.js # cascade level 1/2/3 + verification act
         ├── notificationService.js   # tick(), sendVerificationEmail(); idempotency + FOR UPDATE
@@ -240,13 +282,33 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 | POST | `/api/tasks/:id/transition` | ✅ | `{toStatus}` | Updated Task. FSM-validated; **`isAdmin` is derived from `req.user.role` only — body is ignored**, otherwise any PM could send `isAdmin:true`. 409 on violation. |
 | POST | `/api/tasks/:id/comments` | ✅ | `{message, authorType?, authorName?}` | Updated Task |
 | POST | `/api/tasks/:id/assignees` | ✅ | `{userId}` (UUID) | Updated Task |
-| POST | `/api/tasks/:id/request-client` | ✅ | — | Updated Task with new `magicLink`, status=waiting, 72h TTL |
+| POST | `/api/tasks/:id/request-client` | ✅ | — | Updated Task with new `magicLink`, status=waiting, **7-day TTL** |
+| POST | `/api/tasks/:id/submit-review` | ✅ | `multipart` `{message?, link?, files[]?}` | Updated Task. New `task_approvals` round, status → `review`. `409` if task not in `in-progress`/`client-uploaded` |
+| POST | `/api/tasks/:id/cancel-review` | ✅ | — | Updated Task. Pending round → `withdrawn`, status → `in-progress` |
+| POST | `/api/tasks/:id/files` | ✅ | `multipart` `files[]` | Updated Task. PM file upload (`uploaded_by='pm'`) |
+| GET  | `/api/tasks/:id/files/:fileId/download` | ✅ | — | File stream (`res.download`) |
 | GET  | `/api/guest/:token` | — | — | Mini DTO `{taskId, title, description, deadline, projectName, expiresAt}`. 404 if token unknown, 410 if expired or task no longer in `waiting` |
 | POST | `/api/guest/:token/upload` | — | `multipart/form-data` with `files[]` and optional `comment` | Updated full Task. Status → `client-uploaded`, token invalidated, files written to `api/storage/<task_id>/`, audit event `client_upload` |
+| GET  | `/api/projects/:id/client-link` etc. | ✅ | — | Issue/toggle the permanent `client_view_token` (see projects.js) |
+| GET  | `/api/client/:token` | 🌐 | — | Client cabinet DTO: project, client, team, non-internal tasks. 404 unknown token, 403 disabled |
+| POST | `/api/client/:token/tasks/:taskId/comments` | 🌐 | `{message, anchor?}` | Client comment (anchored optional) |
+| POST | `/api/client/:token/tasks/:taskId/upload` | 🌐 | `multipart` `files[]`, `comment?` | Client content upload to a `waiting` task |
+| POST | `/api/client/:token/tasks/:taskId/approval/approve` | 🌐 | — | Client approves → `done` + acceptance act |
+| POST | `/api/client/:token/tasks/:taskId/approval/changes` | 🌐 | `{comment}` | Client requests changes → `in-progress` |
+| GET  | `/api/client/:token/files/:fileId/download` | 🌐 | — | Download (only non-internal tasks of this project) |
+| POST | `/api/client/:token/suggest-task` | 🌐 | `{title, description?}` | Creates a `task_suggestions` row |
+| POST | `/api/client/:token/question` | 🌐 | `{text}` | Project-scoped `client_question` event |
+| GET/POST | `/api/client/:token/notifications[/read]` | 🌐 | — | Client notifications feed + read-marking |
+| GET  | `/api/notifications?category=&unread=` | ✅ | — | PM notifications feed (over `task_events`) |
+| GET  | `/api/notifications/unread-counts` | ✅ | — | `{total, byCat}` for bell + tab badges |
+| POST | `/api/notifications/read` | ✅ | `{eventIds}` | Mark read |
+| POST | `/api/suggestions/:id/accept` \| `/reject` | ✅ | — | PM accepts (creates task) / rejects a client suggestion |
 | POST | `/api/telegram/webhook/:secret` | — | Telegram update JSON | `{ok:true}`. Used in webhook-mode; polling-mode calls the same handler internally |
-| GET | `/api/admin/notifications` | ✅ | — | Last 30 system events for the bell dropdown (any logged-in PM) |
+| GET | `/api/admin/notifications` | ✅ | — | Last 30 system events (legacy bell feed) |
 | POST | `/api/admin/trigger-notifications?virtualNow=ISO` | ✅ admin | — | Manually runs one cascade tick with optional virtual-now override; returns `{processed, sent, failed, skipped}` |
 | GET | `/api/admin/health/metrics` | ✅ admin | — | Counts of notification events for the last 24h (for screenshots/diploma) |
+
+🌐 = public, authorized by the unguessable per-project `client_view_token` (no login), scoped to a single project; `clientAuth` middleware loads `req.clientCtx`.
 
 `GET /api/health` is also extended in Iter 6 with `scheduler.{running,lastTickAt,lastTickDurationMs,lastTickError,lastTickSummary}` and `channels.{telegram,email}` blocks — one call answers "is the cascade alive and which channels are wired".
 
@@ -276,7 +338,7 @@ All mutations:
 ### Auth flow
 - Login: `POST /api/auth/login` → `bcrypt.compare` against `users.password_hash` → on success the server signs a JWT (`{sub: user.id, role: user.role}`, HS256, TTL 24h) and sets it as httpOnly cookie `tflow_session`.
 - Every request to `/api` runs `attachUser` middleware: if a valid cookie is present, `req.user` gets the full user row; otherwise the middleware just continues silently.
-- `requireAuth` is mounted on `/api/projects`, `/api/tasks`, `/api/users` — these return 401 if `req.user` is missing. Public routes: `/api/health`, `/api/auth/login`, `/api/auth/logout`, `/api/guest/*`. `/api/auth/me` is mounted under the public auth router but returns 401 itself when not logged in.
+- `requireAuth` guards the PM-side routers: `/api/projects`, `/api/tasks`, `/api/users`, `/api/clients`, `/api/notifications`, `/api/suggestions`, `/api/admin` — 401 if `req.user` is missing. **Public** routes: `/api/health`, `/api/auth/login`, `/api/auth/logout`, `/api/guest/*`, and the whole `/api/client/*` cabinet (authorized instead by the per-project `client_view_token` via `clientAuth`). `/api/auth/me` is under the public auth router but returns 401 itself when not logged in.
 - The frontend `api/client.js` sends every request with `credentials: 'include'` so the cookie is attached cross-port (Vite dev :5173 → Express :3001 via proxy). CORS is configured with `credentials: true`.
 - **Role enforcement is server-side only.** The `/tasks/:id/transition` route derives `isAdmin` from `req.user.role === 'admin'` and discards anything in the body — otherwise any PM could send `isAdmin: true` and roll back `done`. The frontend FSM check (`canTransitionStatus(..., {isAdmin})`) uses `currentUser.role === 'admin'` purely for UX (hiding obviously-bad targets); it is not a security boundary.
 - Logout (`POST /api/auth/logout`) just calls `res.clearCookie`. The JWT itself is stateless so old tokens technically remain valid until expiry — fine for the diploma, would need a blocklist in production.
@@ -326,6 +388,33 @@ The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 
 - Startup ENV sanity warnings: `TELEGRAM_BOT_TOKEN` without `TELEGRAM_BOT_USERNAME`, etc.
 - All notification deliveries logged to `task_events` with structured `payload` (level, channels, deliveries, daysAt). Aggregate counts available via `GET /api/admin/health/metrics`.
 
+### Client cabinet (Stage 1, migration 004)
+- **Access:** a permanent per-project token `projects.client_view_token` (UUID, unguessable, revocable via `client_view_enabled`). URL `/client/:token` → `ClientApp`. No login, no cookie — the token *is* the key, scoped to exactly one project.
+- `middleware/clientAuth.js` resolves the token → `req.clientCtx = { token, project, client }`. 404 on unknown token, 403 if disabled.
+- `clientService.js` holds all client-side logic and **always re-checks** that a task belongs to the token's project and is not internal (`assertTaskInProject`). Read endpoints exclude internal tasks (`listTasks({ excludeInternal: true })`).
+- **Internal tasks:** `tasks.is_internal` hides a task from the client entirely (board, downloads, everything).
+- **Anchored comments (Google-Docs style):** `task_comments.anchor` JSONB = `{start, end, quote}` — character offsets into the plaintext description + the quoted text. `AnchoredDescription.jsx` renders highlights and a selection popover; falls back to matching by `quote` if offsets drift. `anchor = null` means a normal whole-task comment.
+- **Client actions:** comment, upload content (to a `waiting` task), suggest a task (`task_suggestions`), ask a question. Suggestions/questions are project-scoped `task_events` (no `task_id`).
+- PM opens the same cabinet via ProjectsView → "Клиентский вид" (`App.openClientView`), issuing/reusing the token through `/api/projects/:id/client-link`.
+
+### Notifications center (Stage 2, migration 005)
+- **In-app only.** The feed is built over `task_events`; there is **no Telegram/Email blast** for comments, statuses, suggestions or approvals. External channels stay reserved for the cascade reminders (waiting tasks) and the acceptance act.
+- `notificationsFeed.js` maps `event_type → category` (`CATEGORY_EVENTS`): `comments`, `approvals`, `escalation`, `acts`, `content`, `inbox`. `listForPm` shows all PM-relevant events; `listForClient` is project-scoped and PM-comment-only.
+- **Read tracking:** `notification_reads(subject_type 'user'|'client', subject_id, event_id)`. Unread counts drive the bell badge and per-tab badges.
+- Project-scoped events (no task) join via `COALESCE(t.project_id, e.project_id)`.
+- UI: `NotificationsDropdown` (bell preview + admin cascade demo controls) and `NotificationsPage` (full-screen, category tabs, "unread only", accept/reject suggestions inline). `eventMeta.js` centralizes labels/dots/`describeEvent`.
+
+### Approval loop (migration 006)
+- **The missing verb — "approve".** Status `review` ("На согласовании") means "waiting for the client's *signature*", distinct from `waiting` ("waiting for the client's *input/materials*").
+- **Entity, not a flag:** `task_approvals` rounds (`round`, `status pending|approved|changes_requested|withdrawn`, `message`, `link`, `decision_comment`, `decided_by_client`). Files attach to a round via `task_files.approval_id`. This gives an honest audit of how many revision rounds happened and binds the acceptance act to a specific approved round.
+- `approvalService.js`:
+  - `submitForReview(taskId, {message, link, files, actorId})` — from `in-progress`/`client-uploaded`; moves files to `storage/<task_id>/` (`uploaded_by='pm'`, `approval_id`), creates round `max(round)+1`, status → `review`, events `review_requested` + history.
+  - `approveReview(taskId, {clientId})` — pending round → `approved`, status → `done`, events `review_approved` + `content_accepted`; **after COMMIT** calls `sendVerificationEmail()` (same act as `client-uploaded → done`).
+  - `requestChanges(taskId, {clientId, comment})` — round → `changes_requested` (comment required), status → `in-progress`, event `review_changes_requested`.
+  - `cancelReview(taskId)` — PM withdraws: pending round → `withdrawn`, status → `in-progress`.
+- **Guard:** `taskService.transitionStatus` throws `409` for generic transitions **into or out of** `review` — entry only via `submitForReview`, exit only via approve/changes/cancel. The frontend status dropdown also hides `review` as a manual target, and dropping a card into the `review` column opens the submit form instead of a bare status change (so there are never "empty" review rounds).
+- **DTO:** each task gets `approvals[]` (rounds, each with its `files`) and `currentApproval` (the pending round, present only while `status==='review'`).
+
 ### File storage (guest uploads)
 - Files go to `api/storage/<task_id>/<uuid>.<ext>` on local disk. The original filename is kept in `task_files.filename`; on disk we only store a UUID to defuse path-traversal and filename collisions.
 - `api/storage/.tmp/` is multer's staging area. The route handler re-creates it on every request (`mkdir recursive`) — survives someone wiping `storage/` while the server runs.
@@ -347,17 +436,21 @@ The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 
   id: string,
   projectId: string,        // 'proj-eco' | 'proj-prima' | 'proj-med'
   title: string,
-  status: 'backlog' | 'to-do' | 'in-progress' | 'waiting' | 'done',
+  status: 'backlog' | 'to-do' | 'in-progress' | 'waiting' | 'client-uploaded' | 'review' | 'done',
   tag: 'Блокирующая' | 'Ключевая' | 'Обычная',
   deadline: string,         // ISO date string
   description: string,
   dependsOn: string[],      // array of task IDs — used by mind map edges
-  files: FileObject[],      // [{id, name, size}]
-  comments: Comment[],      // [{id, author, name, message, at}]
+  files: FileObject[],      // [{id, name, size, uploadedBy:'pm'|'client', approvalId|null}]
+  comments: Comment[],      // [{id, author, name, message, anchor:{start,end,quote}|null, at}]
   assignees: Member[],      // [{id, name, initials}]
   history: HistoryEntry[],  // [{date, text}] — audit trail
+  approvals: Round[],       // [{id, round, status, message, link, submittedAt, decidedAt, decisionComment, files[]}]
+  currentApproval: Round|null, // the pending round (only while status === 'review')
   magicLink: string,        // URL set when status === 'waiting', else ''
   isImportant: boolean,     // true when tag === 'Ключевая'
+  clientId: string|null,    // owning client (for Telegram deep-link)
+  clientTelegramLinked: boolean,
 }
 ```
 
@@ -382,11 +475,13 @@ Three projects exist in mock data. Project badge styles live in `PROJECT_BADGE_S
 ### Columns (COLUMNS in mockData.js)
 
 ```js
-{ id: 'backlog',     title: 'Backlog' }
-{ id: 'to-do',       title: 'To Do' }
-{ id: 'in-progress', title: 'In Progress' }
-{ id: 'waiting',     title: 'Waiting for Client' }
-{ id: 'done',        title: 'Done' }
+{ id: 'backlog',         title: 'Бэклог' }
+{ id: 'to-do',           title: 'К выполнению' }
+{ id: 'in-progress',     title: 'В работе' }
+{ id: 'waiting',         title: 'Ждём клиента' }
+{ id: 'client-uploaded', title: 'Контент загружен' }
+{ id: 'review',          title: 'На согласовании' }
+{ id: 'done',            title: 'Готово' }
 ```
 
 ---
@@ -396,16 +491,20 @@ Three projects exist in mock data. Project badge styles live in `PROJECT_BADGE_S
 Defined in `src/utils/taskWorkflow.js`.
 
 ```
-backlog     → to-do
-to-do       → in-progress | backlog
-in-progress → waiting | done | to-do
-waiting     → in-progress | done
-done        → (terminal — no transitions)
+backlog         → to-do
+to-do           → in-progress | backlog
+in-progress     → waiting | review | done | to-do
+waiting         → client-uploaded
+client-uploaded → in-progress | review | done | waiting
+review          → done | in-progress
+done            → (terminal — no transitions)
 ```
 
 **Admin override:** When `isAdmin=true`, tasks in `done` can be rolled back to any status.
 
-**Magic link:** Generated automatically (in mockData transform) when `status === 'waiting'`. Format: `https://client.transparent-flow.app/task/{id}`. This represents the guest client link concept — in the demo it's a hardcoded string.
+**`review` is special:** entry only via "submit for review" (creates an approval round), exit only via client approve/changes or PM cancel. Generic transitions into/out of `review` are rejected server-side (409) — see the Approval loop section.
+
+**Magic link:** A real UUID token (`tasks.magic_link_token`), generated when a PM clicks "Request client content" (status → `waiting`), **7-day TTL** (covers the cascade window). Single-use for upload: nulled after a successful guest upload.
 
 **Key exports:**
 - `canTransitionStatus(fromStatus, toStatus, { isAdmin })` → boolean
@@ -423,10 +522,11 @@ The diploma defines these FSM states (slightly different naming from code):
 | *(not in diploma)* | `to-do` |
 | `IN_PROGRESS` | `in-progress` |
 | `WAITING_FOR_CLIENT` | `waiting` |
-| `CLIENT_UPLOADED` | *(not yet in code)* |
+| `CLIENT_UPLOADED` | `client-uploaded` ✅ implemented |
+| *(not in diploma)* | `review` — added by the approval loop |
 | `DONE` | `done` |
 
-`CLIENT_UPLOADED` is a diploma-spec state representing "client has uploaded materials via magic link". It is not yet implemented in the code — if added, it would go between `waiting` and `in-progress`.
+`client-uploaded` sits between `waiting` and `in-progress`/`review`/`done`. `review` ("На согласовании") is an addition beyond the diploma FSM — the explicit client-approval step of the approval loop.
 
 ### MVP features (diploma spec, mostly implemented)
 
@@ -443,14 +543,20 @@ The diploma defines these FSM states (slightly different naming from code):
 - [x] `client-uploaded` status in FSM
 - [x] Login + JWT — bcrypt hashes in DB, httpOnly cookie, `requireAuth` middleware, role enforced server-side
 
-### Ideal/future features (from spec, not yet implemented)
+### Delivered beyond MVP
 
-- [ ] Cascading notifications (UI-only, no real push)
-- [ ] Client-facing view behind magic link
-- [ ] Knowledge base (KB tab exists but is skeletal)
-- [ ] Projects view with project-level progress (tab exists but is skeletal)
+- [x] **Cascading notifications** — real Telegram + Email, 3 levels by business days, idempotent `node-cron` scheduler
+- [x] **Acceptance act** — confirmation email on `client-uploaded → done` and on client approval
+- [x] **Client cabinet** behind a permanent project token — read-only board + Mind Map + KB, anchored comments, send content / ask question / suggest task
+- [x] **Notifications center** — in-app feed (PM + client), category tabs, unread badges, read tracking
+- [x] **Approval loop** — `review` status + `task_approvals` rounds, PM submit / client approve / request changes, file upload & download both sides
+
+### Still future (from spec)
+
+- [ ] Knowledge base with real content (KB tab is skeletal)
+- [ ] Projects view with full project-level CRUD (tab exists, partly wired)
 - [ ] Filter/search tasks on Kanban
-- [ ] Real file upload simulation
+- [ ] Real-time updates (SSE); single source of truth for the FSM; automated tests
 
 ---
 
