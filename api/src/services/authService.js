@@ -25,6 +25,11 @@ export const COOKIE_OPTIONS = {
   maxAge: 24 * 60 * 60 * 1000, // 24h
 };
 
+/** Хеширует пароль (cost=10, как в сиде). Используется при создании/сбросе пароля. */
+export function hashPassword(plain) {
+  return bcrypt.hash(plain, 10);
+}
+
 /** Подписывает JWT с минимальным payload (id + role). */
 export function signToken(user) {
   return jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: JWT_TTL });
@@ -44,7 +49,7 @@ export async function login(email, password) {
   if (!email || !password) throw new HttpError(400, 'Email и пароль обязательны');
 
   const res = await pool.query(
-    `SELECT id, name, email, role, password_hash FROM users WHERE email = $1`,
+    `SELECT id, name, email, role, password_hash, is_active FROM users WHERE email = $1`,
     [email.toLowerCase().trim()],
   );
   // Одинаковая ошибка для «нет такого юзера» и «неверный пароль» —
@@ -54,15 +59,17 @@ export async function login(email, password) {
   const row = res.rows[0];
   const ok = await bcrypt.compare(password, row.password_hash);
   if (!ok) throw new HttpError(401, 'Неверный email или пароль');
+  if (!row.is_active) throw new HttpError(403, 'Учётная запись деактивирована');
 
   const user = { id: row.id, name: row.name, email: row.email, role: row.role };
   return { user, token: signToken(user) };
 }
 
-/** По id из payload подтягивает текущего пользователя. */
+/** По id из payload подтягивает текущего пользователя.
+ *  Деактивированные не возвращаются — их сессия перестаёт действовать сразу. */
 export async function getUserById(id) {
   const res = await pool.query(
-    `SELECT id, name, email, role FROM users WHERE id = $1`,
+    `SELECT id, name, email, role FROM users WHERE id = $1 AND is_active = true`,
     [id],
   );
   return res.rows[0] ?? null;

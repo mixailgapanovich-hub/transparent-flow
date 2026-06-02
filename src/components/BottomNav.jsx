@@ -1,6 +1,6 @@
-import { LayoutDashboard, FolderOpen, CheckSquare, BookOpen, Settings } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, CheckSquare, BookOpen, Settings, ShieldCheck } from 'lucide-react';
 
-const TABS = [
+const BASE_TABS = [
   { id: 'dashboard', icon: LayoutDashboard, label: 'Доска' },
   { id: 'tasks',     icon: CheckSquare,      label: 'Задачи' },
   { id: 'projects',  icon: FolderOpen,       label: 'Проекты' },
@@ -8,7 +8,10 @@ const TABS = [
   { id: 'settings',  icon: Settings,         label: 'Настройки', action: 'settings' },
 ];
 
-export default function BottomNav({ activeTab, onTabChange, onOpenSettings }) {
+export default function BottomNav({ activeTab, onTabChange, onOpenSettings, isAdmin = false }) {
+  const TABS = isAdmin
+    ? [...BASE_TABS.slice(0, 4), { id: 'management', icon: ShieldCheck, label: 'Упр.' }, BASE_TABS[4]]
+    : BASE_TABS;
   return (
     <nav
       className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 safe-bottom"

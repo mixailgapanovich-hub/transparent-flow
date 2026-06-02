@@ -12,6 +12,8 @@ import {
   requestClientContent,
   uploadTaskFiles,
   getTaskFile,
+  addDependency,
+  removeDependency,
   HttpError,
 } from '../services/taskService.js';
 import { submitForReview, cancelReview } from '../services/approvalService.js';
@@ -81,6 +83,18 @@ router.post('/:id/assignees', wrap(async (req, res) => {
 // Запросить контент у клиента (status → waiting + magic link)
 router.post('/:id/request-client', wrap(async (req, res) => {
   res.json(await requestClientContent(req.params.id));
+}));
+
+// ── Зависимости задач ────────────────────────────────────────────────────────
+// Добавить связь «задача :id зависит от dependsOnId» (с защитой от циклов).
+router.post('/:id/dependencies', wrap(async (req, res) => {
+  const { dependsOnId } = req.body ?? {};
+  res.status(201).json(await addDependency(req.params.id, dependsOnId, { actorId: req.user?.id }));
+}));
+
+// Удалить связь.
+router.delete('/:id/dependencies/:depId', wrap(async (req, res) => {
+  res.json(await removeDependency(req.params.id, req.params.depId, { actorId: req.user?.id }));
 }));
 
 // ── Цикл согласования (PM) ──────────────────────────────────────────────────

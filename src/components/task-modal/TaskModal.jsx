@@ -101,6 +101,7 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
     status: task?.status ?? 'backlog',
     deadline: normalizeDeadline(task?.deadline),
     tag: task?.tag ?? 'Обычная',
+    isInternal: task?.isInternal ?? false,
   };
 
   const [draft, setDraft] = useState({
@@ -166,7 +167,8 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
       draft.description !== (task.description ?? '') ||
       draft.status !== (task.status ?? 'backlog') ||
       draft.deadline !== normalizeDeadline(task.deadline) ||
-      draft.tag !== (task.tag ?? 'Обычная'));
+      draft.tag !== (task.tag ?? 'Обычная') ||
+      draft.isInternal !== (task.isInternal ?? false));
 
   const allowedStatuses = useMemo(
     () => getAllowedStatuses(task?.status ?? 'backlog', { isAdmin }),
@@ -204,6 +206,7 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
       deadline: draft.deadline,
       tag: draft.tag,
       isImportant: draft.tag === 'Ключевая',
+      isInternal: draft.isInternal,
     });
   };
 
@@ -923,6 +926,19 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                 </option>
               ))}
             </select>
+
+            <label className="mt-6 flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 px-3 py-2.5">
+              <input
+                type="checkbox"
+                checked={draft.isInternal}
+                onChange={(event) => setDraft((prev) => ({ ...prev, isInternal: event.target.checked }))}
+                className="mt-0.5 h-4 w-4 accent-[#3C50B4]"
+              />
+              <span>
+                <span className="block text-xs font-bold text-slate-700">Внутренняя задача</span>
+                <span className="block text-[11px] text-slate-400">Скрыта от клиента в его кабинете</span>
+              </span>
+            </label>
 
             <div className="mt-6">
               <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">

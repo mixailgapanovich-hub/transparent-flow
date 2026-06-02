@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import { listProjects } from '../services/projectService.js';
+import { listProjects, createProject, updateProject, archiveProject } from '../services/projectService.js';
+import { requireAdmin } from '../middleware/auth.js';
 import { pool } from '../db/pool.js';
 
 const router = Router();
+const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
 router.get('/', async (_req, res, next) => {
   try {
@@ -13,6 +15,19 @@ router.get('/', async (_req, res, next) => {
     next(err);
   }
 });
+
+// ── Админ: создание/редактирование/архивирование проектов ────────────────────
+router.post('/', requireAdmin, wrap(async (req, res) => {
+  res.status(201).json(await createProject(req.body ?? {}));
+}));
+
+router.patch('/:id', requireAdmin, wrap(async (req, res) => {
+  res.json(await updateProject(req.params.id, req.body ?? {}));
+}));
+
+router.post('/:id/archive', requireAdmin, wrap(async (req, res) => {
+  res.json(await archiveProject(req.params.id));
+}));
 
 /**
  * POST /api/projects/:id/client-link

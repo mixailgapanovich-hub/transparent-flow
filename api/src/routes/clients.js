@@ -1,10 +1,31 @@
-// Управление клиентами — сейчас только генерация one-time Telegram onboarding токена.
+// Управление клиентами: CRUD (admin) + генерация one-time Telegram onboarding токена.
 
 import { Router } from 'express';
 import { pool } from '../db/pool.js';
 import { telegramState } from '../services/channels/telegram.js';
+import { requireAdmin } from '../middleware/auth.js';
+import { listClients, createClient, updateClient, deleteClient } from '../services/clientsAdminService.js';
 
 const router = Router();
+const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+// ── Админ-CRUD клиентов ──────────────────────────────────────────────────────
+router.get('/', wrap(async (_req, res) => {
+  res.json(await listClients());
+}));
+
+router.post('/', requireAdmin, wrap(async (req, res) => {
+  res.status(201).json(await createClient(req.body ?? {}));
+}));
+
+router.patch('/:id', requireAdmin, wrap(async (req, res) => {
+  res.json(await updateClient(req.params.id, req.body ?? {}));
+}));
+
+router.delete('/:id', requireAdmin, wrap(async (req, res) => {
+  await deleteClient(req.params.id);
+  res.status(204).end();
+}));
 
 /**
  * POST /api/clients/:clientId/telegram-onboarding
