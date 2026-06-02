@@ -12,6 +12,7 @@ This file provides guidance to Claude Code when working with this repository.
 - **Stage 1 — client cabinet** (migration 004): a permanent per-project access token (`projects.client_view_token`) gives the client a read-only `/client/:token` SPA — Kanban + Mind Map + knowledge base, Google-Docs-style anchored comments on the task description, plus actions: send content (file upload), ask a question, suggest a task. Internal tasks (`tasks.is_internal`) are hidden from the client.
 - **Stage 2 — notifications center** (migration 005): an in-app feed built over `task_events` with category tabs, unread badges and read-tracking (`notification_reads`), for both PM and client. **No external blast** for comments/statuses/suggestions — Telegram/Email stay only for the cascade reminders (waiting tasks) and the acceptance act.
 - **Approval loop** (migration 006): a `review` status + `task_approvals` rounds. PM submits the deliverable (note + link + files), the client **approves** (→ `done` + acceptance act) or **requests changes** (→ `in-progress`, next round). File upload/download for both PM and client.
+- **Foundation** (migration 007): admin-only **«Управление»** section — CRUD for clients/projects/employees from the UI (no more seed-only data). Plus: `is_internal` task toggle in TaskModal (hides a task from the client), a dependency editor in the Mind Map (drag to connect, Delete to remove, server-side cycle guard), `requireAdmin` middleware, and `users.is_active` for soft-deactivating employees (login + existing sessions rejected immediately).
 
 **Business problem it solves:** Agency teams lose track of client tasks across email chains. This dashboard gives PMs a central board; the client gets a registration-free read-only window into the project (permanent link), can upload materials and approve results, and is nudged automatically when they stall.
 
@@ -180,6 +181,8 @@ src/
 │   ├── notifications/
 │   │   ├── NotificationsPage.jsx    # Full-screen notifications center (PM + client)
 │   │   └── eventMeta.js             # CATEGORY_TABS, describeEvent, eventDot, relativeTime
+│   ├── management/
+│   │   └── ManagementView.jsx       # Admin «Управление»: CRUD projects/clients/users (+ inline form modals)
 │   └── task-modal/
 │       ├── TaskModal.jsx            # Task detail/edit modal; PM + clientMode; approval UI
 │       └── AnchoredDescription.jsx  # Text-selection → anchored comment popover + highlights
@@ -209,7 +212,8 @@ api/
 │   ├── 003_telegram_onboarding.sql  # clients.telegram_chat_id + onboarding tokens
 │   ├── 004_client_view.sql          # Stage 1: client_view_token, is_internal, anchor, task_suggestions, project-scoped events
 │   ├── 005_notifications_center.sql # Stage 2: notification_reads
-│   └── 006_approvals.sql            # Approval loop: review status, task_approvals, task_files.approval_id
+│   ├── 006_approvals.sql            # Approval loop: review status, task_approvals, task_files.approval_id
+│   └── 007_foundation.sql           # Foundation: users.is_active (soft-deactivate)
 │
 ├── scripts/
 │   ├── migrate.js                   # Runs *.sql files alphabetically, --reset drops public schema
@@ -220,7 +224,7 @@ api/
     ├── db/
     │   └── pool.js                  # pg.Pool + withTransaction(fn) helper
     ├── middleware/
-    │   ├── auth.js                  # attachUser (reads cookie → req.user) + requireAuth (401 guard)
+    │   ├── auth.js                  # attachUser (cookie → req.user) + requireAuth (401) + requireAdmin (403)
     │   ├── clientAuth.js            # resolves /client/:token → req.clientCtx {project, client}
     │   └── uploads.js               # shared multer factory makeUploader() + multerErrorHandler
     ├── routes/
@@ -238,7 +242,8 @@ api/
     ├── scheduler.js                 # node-cron, calls notificationService.tick()
     └── services/
         ├── authService.js           # login(), signToken/verifyToken, AUTH_COOKIE + COOKIE_OPTIONS
-        ├── projectService.js        # listProjects(); client-link token issue/toggle
+        ├── projectService.js        # listProjects/getProjectById; create/update/archive; slugify; client-link
+        ├── clientsAdminService.js   # admin CRUD of clients (separate from cabinet clientService.js)
         ├── taskService.js           # listTasks, getTaskById, mutations, uploadTaskFiles/getTaskFile, HttpError
         ├── taskWorkflow.js          # FSM, mirror of frontend taskWorkflow.js
         ├── approvalService.js       # submitForReview / approveReview / requestChanges / cancelReview
@@ -303,6 +308,14 @@ docs/database.sql                    # Reference DDL (source of truth, mirrored 
 | GET  | `/api/notifications/unread-counts` | ✅ | — | `{total, byCat}` for bell + tab badges |
 | POST | `/api/notifications/read` | ✅ | `{eventIds}` | Mark read |
 | POST | `/api/suggestions/:id/accept` \| `/reject` | ✅ | — | PM accepts (creates task) / rejects a client suggestion |
+| GET | `/api/clients` | ✅ | — | Client list (with `projectsCount`) for «Управление» |
+| POST/PATCH/DELETE | `/api/clients` \| `/api/clients/:id` | ✅ admin | client fields | Client CRUD. DELETE → 409 if client has projects |
+| POST/PATCH | `/api/projects` \| `/api/projects/:id` | ✅ admin | project fields | Create / edit project (slug auto-generated from name) |
+| POST | `/api/projects/:id/archive` | ✅ admin | — | Archive project (status → `completed`) |
+| POST/PATCH | `/api/users` \| `/api/users/:id` | ✅ admin | `{name,email,role,password}` / `{role,isActive}` | Create / edit employee |
+| POST | `/api/users/:id/reset-password` | ✅ admin | `{password}` | Reset employee password |
+| POST | `/api/tasks/:id/dependencies` | ✅ | `{dependsOnId}` | Add dependency (409 on cycle / self) |
+| DELETE | `/api/tasks/:id/dependencies/:depId` | ✅ | — | Remove dependency |
 | POST | `/api/telegram/webhook/:secret` | — | Telegram update JSON | `{ok:true}`. Used in webhook-mode; polling-mode calls the same handler internally |
 | GET | `/api/admin/notifications` | ✅ | — | Last 30 system events (legacy bell feed) |
 | POST | `/api/admin/trigger-notifications?virtualNow=ISO` | ✅ admin | — | Manually runs one cascade tick with optional virtual-now override; returns `{processed, sent, failed, skipped}` |
@@ -338,7 +351,7 @@ All mutations:
 ### Auth flow
 - Login: `POST /api/auth/login` → `bcrypt.compare` against `users.password_hash` → on success the server signs a JWT (`{sub: user.id, role: user.role}`, HS256, TTL 24h) and sets it as httpOnly cookie `tflow_session`.
 - Every request to `/api` runs `attachUser` middleware: if a valid cookie is present, `req.user` gets the full user row; otherwise the middleware just continues silently.
-- `requireAuth` guards the PM-side routers: `/api/projects`, `/api/tasks`, `/api/users`, `/api/clients`, `/api/notifications`, `/api/suggestions`, `/api/admin` — 401 if `req.user` is missing. **Public** routes: `/api/health`, `/api/auth/login`, `/api/auth/logout`, `/api/guest/*`, and the whole `/api/client/*` cabinet (authorized instead by the per-project `client_view_token` via `clientAuth`). `/api/auth/me` is under the public auth router but returns 401 itself when not logged in.
+- `requireAuth` guards the PM-side routers: `/api/projects`, `/api/tasks`, `/api/users`, `/api/clients`, `/api/notifications`, `/api/suggestions`, `/api/admin` — 401 if `req.user` is missing. **`requireAdmin`** is layered per-route on entity mutations (clients/projects/users create/edit/delete) — 403 for non-admins, while their `GET` stays open to PMs. **Public** routes: `/api/health`, `/api/auth/login`, `/api/auth/logout`, `/api/guest/*`, and the whole `/api/client/*` cabinet (authorized instead by the per-project `client_view_token` via `clientAuth`). `/api/auth/me` is under the public auth router but returns 401 itself when not logged in.
 - The frontend `api/client.js` sends every request with `credentials: 'include'` so the cookie is attached cross-port (Vite dev :5173 → Express :3001 via proxy). CORS is configured with `credentials: true`.
 - **Role enforcement is server-side only.** The `/tasks/:id/transition` route derives `isAdmin` from `req.user.role === 'admin'` and discards anything in the body — otherwise any PM could send `isAdmin: true` and roll back `done`. The frontend FSM check (`canTransitionStatus(..., {isAdmin})`) uses `currentUser.role === 'admin'` purely for UX (hiding obviously-bad targets); it is not a security boundary.
 - Logout (`POST /api/auth/logout`) just calls `res.clearCookie`. The JWT itself is stateless so old tokens technically remain valid until expiry — fine for the diploma, would need a blocklist in production.
@@ -415,6 +428,15 @@ The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 
 - **Guard:** `taskService.transitionStatus` throws `409` for generic transitions **into or out of** `review` — entry only via `submitForReview`, exit only via approve/changes/cancel. The frontend status dropdown also hides `review` as a manual target, and dropping a card into the `review` column opens the submit form instead of a bare status change (so there are never "empty" review rounds).
 - **DTO:** each task gets `approvals[]` (rounds, each with its `files`) and `currentApproval` (the pending round, present only while `status==='review'`).
 
+### Foundation — entity management (migration 007)
+- **Admin-only «Управление» section** (`src/components/management/ManagementView.jsx`): sub-tabs Проекты / Клиенты / Сотрудники, each a list + create/edit modal. Visible only when `currentUser.role === 'admin'` (Sidebar + BottomNav gate on `isAdmin`); `activeTab === 'management'` in `App.jsx`. After mutations it calls `onDataChanged` → `App.refreshEntities()` re-fetches `projects` + `team`.
+- **`requireAdmin`** (`middleware/auth.js`) guards mutating routes **per-route** (GET stays open to PMs — `/api/users` feeds the assignee dropdown, `/api/clients` GET feeds the project form). Mounted after `requireAuth`.
+- **Clients** — `services/clientsAdminService.js` (distinct from the cabinet's `clientService.js`): list/create/update/delete; delete blocked (409) when the client still has projects.
+- **Projects** — `projectService.js` `createProject`/`updateProject`/`archiveProject`; `slugify()` transliterates Cyrillic and `uniqueSlug()` guarantees uniqueness. Projects are **archived** (`status='completed'`), never hard-deleted (keeps tasks/history).
+- **Employees** — `userService.js` `createUser`/`updateUser`/`resetPassword`; passwords via `authService.hashPassword` (bcrypt cost 10). Soft-deactivate through `users.is_active`: `login()` returns 403 and `getUserById()` filters inactive, so existing sessions die immediately.
+- **`is_internal` toggle** — checkbox in TaskModal aside; `taskService.updateTaskFields` maps `isInternal` → `is_internal`, `createTask` accepts it, DTO exposes `isInternal`. Client cabinet already hides internal tasks (`excludeInternal`).
+- **Dependency editor** — `taskService.addDependency`/`removeDependency` (+ routes); cycle guard rejects with 409 (traverses `task_dependencies` from `dependsOnId` looking for `taskId`). UI in `TasksMindMapView` (`editable` prop): `onConnect` adds, `onEdgesDelete` removes; a `nonce` re-key discards ReactFlow's optimistic edge so the graph always reflects the server.
+
 ### File storage (guest uploads)
 - Files go to `api/storage/<task_id>/<uuid>.<ext>` on local disk. The original filename is kept in `task_files.filename`; on disk we only store a UUID to defuse path-traversal and filename collisions.
 - `api/storage/.tmp/` is multer's staging area. The route handler re-creates it on every request (`mkdir recursive`) — survives someone wiping `storage/` while the server runs.
@@ -449,6 +471,7 @@ The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 
   currentApproval: Round|null, // the pending round (only while status === 'review')
   magicLink: string,        // URL set when status === 'waiting', else ''
   isImportant: boolean,     // true when tag === 'Ключевая'
+  isInternal: boolean,      // hidden from the client cabinet when true
   clientId: string|null,    // owning client (for Telegram deep-link)
   clientTelegramLinked: boolean,
 }
@@ -550,11 +573,11 @@ The diploma defines these FSM states (slightly different naming from code):
 - [x] **Client cabinet** behind a permanent project token — read-only board + Mind Map + KB, anchored comments, send content / ask question / suggest task
 - [x] **Notifications center** — in-app feed (PM + client), category tabs, unread badges, read tracking
 - [x] **Approval loop** — `review` status + `task_approvals` rounds, PM submit / client approve / request changes, file upload & download both sides
+- [x] **Foundation** — admin «Управление» CRUD (clients/projects/employees), `is_internal` toggle, Mind-Map dependency editor (cycle-guarded), soft-deactivate employees
 
 ### Still future (from spec)
 
 - [ ] Knowledge base with real content (KB tab is skeletal)
-- [ ] Projects view with full project-level CRUD (tab exists, partly wired)
 - [ ] Filter/search tasks on Kanban
 - [ ] Real-time updates (SSE); single source of truth for the FSM; automated tests
 

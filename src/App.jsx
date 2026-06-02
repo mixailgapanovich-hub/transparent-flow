@@ -17,6 +17,7 @@ import ProjectsView from './components/ProjectsView';
 import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
 import BottomNav from './components/BottomNav';
+import ManagementView from './components/management/ManagementView';
 
 export default function App() {
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
@@ -295,6 +296,31 @@ export default function App() {
     replaceTask(updated);
   };
 
+  // После CRUD в разделе «Управление» — обновляем глобальные списки проектов и команды.
+  const refreshEntities = useCallback(() => {
+    api.listProjects().then(setProjects).catch(() => {});
+    api.listUsers().then(setTeam).catch(() => {});
+  }, []);
+
+  // Редактирование зависимостей из Mind Map: после изменения перетягиваем задачи.
+  const addDependency = async (taskId, dependsOnId) => {
+    try {
+      const updated = await api.addDependency(taskId, dependsOnId);
+      replaceTask(updated);
+      showToast('success', 'Зависимость добавлена');
+    } catch (err) {
+      showToast('error', err.detail || err.message);
+    }
+  };
+  const removeDependency = async (taskId, dependsOnId) => {
+    try {
+      const updated = await api.removeDependency(taskId, dependsOnId);
+      replaceTask(updated);
+    } catch (err) {
+      showToast('error', err.detail || err.message);
+    }
+  };
+
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
   // Здесь только обновляем локальный кэш задачи свежим DTO.
   const handleGuestUploaded = (updatedTask) => {
@@ -361,6 +387,7 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={(tab) => { setActiveTab(tab); setProjectFilter(null); }}
         onSettingsClick={() => setIsSettingsOpen(true)}
+        isAdmin={isAdmin}
       />
 
       {/* 2. Основной контент (Центр + Право) */}
@@ -453,6 +480,8 @@ export default function App() {
       setTasks={setTasks}
       onChangeStatus={updateTaskStatus}
       onSubmitForReview={openSubmitForReview}
+      onAddDependency={addDependency}
+      onRemoveDependency={removeDependency}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
@@ -465,6 +494,8 @@ export default function App() {
       setTasks={setTasks}
       onChangeStatus={updateTaskStatus}
       onSubmitForReview={openSubmitForReview}
+      onAddDependency={addDependency}
+      onRemoveDependency={removeDependency}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
@@ -479,6 +510,8 @@ export default function App() {
     <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} onClientView={openClientView} />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
+  ) : activeTab === 'management' && isAdmin ? (
+    <ManagementView onToast={showToast} onDataChanged={refreshEntities} />
   ) : (
     <div className="flex items-center justify-center h-full text-slate-300 font-machine text-2xl">
       Раздел {activeTab} в разработке
@@ -614,6 +647,7 @@ export default function App() {
         activeTab={activeTab}
         onTabChange={(tab) => { setActiveTab(tab); setProjectFilter(null); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        isAdmin={isAdmin}
       />
 
       <style>{`

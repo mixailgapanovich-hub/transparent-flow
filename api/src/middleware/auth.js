@@ -20,3 +20,11 @@ export function requireAuth(req, res, next) {
   }
   next();
 }
+
+/** Guard администратора: ставится ПОСЛЕ requireAuth на мутирующих admin-роутах. */
+export function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Действие доступно только администратору' });
+  }
+  next();
+}

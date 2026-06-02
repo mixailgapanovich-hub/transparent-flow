@@ -1,13 +1,14 @@
 import React from 'react';
-import { Zap, LayoutDashboard, FolderOpen, CheckSquare, BookOpen, Settings } from 'lucide-react';
+import { Zap, LayoutDashboard, FolderOpen, CheckSquare, BookOpen, Settings, ShieldCheck } from 'lucide-react';
 
 // Добавляем onSettingsClick в деструктуризацию пропсов
-export default function Sidebar({ activeTab, setActiveTab, onSettingsClick }) {
+export default function Sidebar({ activeTab, setActiveTab, onSettingsClick, isAdmin = false }) {
   const menuItems = [
     { id: 'dashboard', icon: LayoutDashboard },
     { id: 'projects', icon: FolderOpen },
     { id: 'tasks', icon: CheckSquare },
     { id: 'kb', icon: BookOpen },
+    ...(isAdmin ? [{ id: 'management', icon: ShieldCheck }] : []),
   ];
 
   return (

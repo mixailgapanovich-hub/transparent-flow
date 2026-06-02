@@ -111,6 +111,7 @@ function buildTaskDto(taskRow, related) {
     history,
     magicLink,
     isImportant: taskRow.tag === 'Ключевая',
+    isInternal: Boolean(taskRow.is_internal),
     approvals,
     currentApproval,
     // Привязка клиента — для UI «Подключить Telegram»
@@ -198,6 +199,7 @@ export async function listTasks({ projectSlug, excludeInternal = false } = {}) {
 
   const tasksRes = await pool.query(
     `SELECT t.id, t.title, t.description, t.status, t.tag, t.deadline,
+            t.is_internal,
             t.magic_link_token, t.created_at, t.updated_at,
             p.slug AS project_slug,
             c.id AS client_id,
@@ -220,6 +222,7 @@ export async function listTasks({ projectSlug, excludeInternal = false } = {}) {
 export async function getTaskById(id) {
   const tasksRes = await pool.query(
     `SELECT t.id, t.title, t.description, t.status, t.tag, t.deadline,
+            t.is_internal,
             t.magic_link_token, t.created_at, t.updated_at,
             p.slug AS project_slug,
             c.id AS client_id,
@@ -330,6 +333,11 @@ export async function updateTaskFields(taskId, patch, { actorId = null } = {}) {
       sets.push(`${key} = $${params.length}`);
     }
   }
+  // is_internal — отдельный маппинг camelCase → snake_case (флаг «внутренняя задача»).
+  if ('isInternal' in patch) {
+    params.push(Boolean(patch.isInternal));
+    sets.push(`is_internal = $${params.length}`);
+  }
   if (sets.length === 0) {
     const existing = await getTaskById(taskId);
     if (!existing) throw new HttpError(404, 'Task not found');
@@ -354,7 +362,7 @@ export async function updateTaskFields(taskId, patch, { actorId = null } = {}) {
 
 /** Создание задачи. projectSlug обязателен. */
 export async function createTask(input, { actorId = null } = {}) {
-  const { projectSlug, title, description, status, tag, deadline, assigneeIds } = input;
+  const { projectSlug, title, description, status, tag, deadline, assigneeIds, isInternal } = input;
   if (!projectSlug) throw new HttpError(400, 'projectSlug required');
   if (!title) throw new HttpError(400, 'title required');
 
@@ -365,8 +373,8 @@ export async function createTask(input, { actorId = null } = {}) {
 
     const taskId = randomUUID();
     await c.query(
-      `INSERT INTO tasks (id, project_id, title, description, status, tag, deadline)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO tasks (id, project_id, title, description, status, tag, deadline, is_internal)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         taskId,
         projectId,
@@ -375,6 +383,7 @@ export async function createTask(input, { actorId = null } = {}) {
         status ?? 'backlog',
         tag ?? 'Обычная',
         deadline ?? null,
+        Boolean(isInternal),
       ],
     );
 
@@ -561,4 +570,53 @@ export async function getTaskFile(taskId, fileId) {
   );
   if (rows.length === 0) throw new HttpError(404, 'Файл не найден');
   return rows[0];
+}
+
+/** Добавляет зависимость «taskId зависит от dependsOnId» с защитой от циклов. */
+export async function addDependency(taskId, dependsOnId, { actorId = null } = {}) {
+  if (!dependsOnId) throw new HttpError(400, 'dependsOnId required');
+  if (taskId === dependsOnId) throw new HttpError(409, 'Задача не может зависеть от самой себя');
+
+  const ex = await pool.query('SELECT id FROM tasks WHERE id = ANY($1::uuid[])', [[taskId, dependsOnId]]);
+  if (ex.rowCount < 2) throw new HttpError(404, 'Задача не найдена');
+
+  // Цикл возникнет, если dependsOnId уже (транзитивно) зависит от taskId.
+  const edges = await pool.query('SELECT task_id, depends_on_id FROM task_dependencies');
+  const adj = new Map();
+  for (const r of edges.rows) {
+    if (!adj.has(r.task_id)) adj.set(r.task_id, []);
+    adj.get(r.task_id).push(r.depends_on_id);
+  }
+  const seen = new Set();
+  const stack = [dependsOnId];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur === taskId) throw new HttpError(409, 'Нельзя: возникнет циклическая зависимость');
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    for (const n of adj.get(cur) ?? []) stack.push(n);
+  }
+
+  const id = await withTransaction(async (c) => {
+    const ins = await c.query(
+      `INSERT INTO task_dependencies (task_id, depends_on_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [taskId, dependsOnId],
+    );
+    if (ins.rowCount > 0) await logHistory(c, taskId, 'Добавлена зависимость', 'pm', actorId);
+    return taskId;
+  });
+  return getTaskById(id);
+}
+
+/** Удаляет зависимость «taskId зависит от dependsOnId». */
+export async function removeDependency(taskId, dependsOnId, { actorId = null } = {}) {
+  const id = await withTransaction(async (c) => {
+    const del = await c.query(
+      `DELETE FROM task_dependencies WHERE task_id = $1 AND depends_on_id = $2`,
+      [taskId, dependsOnId],
+    );
+    if (del.rowCount > 0) await logHistory(c, taskId, 'Удалена зависимость', 'pm', actorId);
+    return taskId;
+  });
+  return getTaskById(id);
 }

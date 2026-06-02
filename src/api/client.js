@@ -130,6 +130,28 @@ export const api = {
   updateClientLink: (projectId, patch) =>
     json('PATCH', `/api/projects/${projectId}/client-link`, patch),
 
+  // Раздел «Управление» (admin): сущности агентства
+  admin: {
+    listClients: () => request('/api/clients'),
+    createClient: (body) => json('POST', '/api/clients', body),
+    updateClient: (id, patch) => json('PATCH', `/api/clients/${id}`, patch),
+    deleteClient: (id) => json('DELETE', `/api/clients/${id}`),
+
+    createProject: (body) => json('POST', '/api/projects', body),
+    updateProject: (id, patch) => json('PATCH', `/api/projects/${id}`, patch),
+    archiveProject: (id) => json('POST', `/api/projects/${id}/archive`),
+
+    createUser: (body) => json('POST', '/api/users', body),
+    updateUser: (id, patch) => json('PATCH', `/api/users/${id}`, patch),
+    resetUserPassword: (id, password) => json('POST', `/api/users/${id}/reset-password`, { password }),
+  },
+
+  // Зависимости задач (редактор в Mind Map)
+  addDependency: (taskId, dependsOnId) =>
+    json('POST', `/api/tasks/${taskId}/dependencies`, { dependsOnId }),
+  removeDependency: (taskId, dependsOnId) =>
+    json('DELETE', `/api/tasks/${taskId}/dependencies/${dependsOnId}`),
+
   // Клиентский кабинет (доступ по проектному токену, без логина)
   client: {
     get: (token) => request(`/api/client/${token}`),

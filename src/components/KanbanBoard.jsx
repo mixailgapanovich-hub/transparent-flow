@@ -250,6 +250,8 @@ export default function KanbanBoard({
   onCreateTask,
   onChangeStatus,
   onSubmitForReview,
+  onAddDependency,
+  onRemoveDependency,
   columns: propColumns,
   showProjectBadge = false,
   showColumnFilter = false,
@@ -530,7 +532,13 @@ export default function KanbanBoard({
         </DndContext>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          <TasksMindMapView tasks={tasks} onTaskClick={onTaskClick} />
+          <TasksMindMapView
+            tasks={tasks}
+            onTaskClick={onTaskClick}
+            editable={!readOnly}
+            onAddDependency={onAddDependency}
+            onRemoveDependency={onRemoveDependency}
+          />
         </div>
       )}
     </div>
