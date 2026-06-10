@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, BookOpen, LayoutGrid, Bell } from 'lucide-react';
+import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, MessageSquare, BookOpen, LayoutGrid, Bell } from 'lucide-react';
 import { api } from '../../api/client';
 import KanbanBoard from '../KanbanBoard';
 import TaskModal from '../task-modal/TaskModal';
@@ -7,6 +7,8 @@ import KnowledgeBase from '../KnowledgeBase';
 import SendContentModal from './SendContentModal';
 import AskQuestionModal from './AskQuestionModal';
 import SuggestTaskModal from './SuggestTaskModal';
+import ActionPanel from './ActionPanel';
+import ProjectFeed from './ProjectFeed';
 import NotificationsPage from '../notifications/NotificationsPage';
 import { useToastState, ToastContainer } from '../Toast';
 
@@ -28,7 +30,7 @@ export default function ClientApp({ token }) {
   const [loadError, setLoadError] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
-  const [view, setView] = useState('board'); // 'board' | 'kb'
+  const [view, setView] = useState('board'); // 'board' | 'feed' | 'kb'
   const [modal, setModal] = useState(null); // 'send' | 'ask' | 'suggest'
   const [uploadTaskId, setUploadTaskId] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -91,6 +93,17 @@ export default function ClientApp({ token }) {
     }
   };
 
+  // Ответ из единой ленты (для произвольной задачи, не обязательно открытой в модалке).
+  const reply = async (taskId, message) => {
+    try {
+      const updated = await api.client.comment(token, taskId, { message });
+      replaceTask(updated);
+    } catch (err) {
+      showToast('error', 'Не удалось отправить: ' + (err.detail || err.message));
+      throw err;
+    }
+  };
+
   const openUpload = (taskId) => { setUploadTaskId(taskId); setSelectedTaskId(null); setModal('send'); };
 
   if (loadError) {
@@ -134,6 +147,12 @@ export default function ClientApp({ token }) {
               <LayoutGrid size={16} /> <span className="hidden sm:inline">Доска</span>
             </button>
             <button
+              onClick={() => setView('feed')}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-colors ${view === 'feed' ? 'bg-[#3C50B4] text-white' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              <MessageSquare size={16} /> <span className="hidden sm:inline">Лента</span>
+            </button>
+            <button
               onClick={() => setView('kb')}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-colors ${view === 'kb' ? 'bg-[#3C50B4] text-white' : 'text-slate-500 hover:text-slate-800'}`}
             >
@@ -159,15 +178,20 @@ export default function ClientApp({ token }) {
             <div className="flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
               <div className="flex-1 overflow-auto p-3 md:p-8 custom-scrollbar">
                 {view === 'board' ? (
-                  <KanbanBoard
-                    tasks={tasks}
-                    onTaskClick={setSelectedTaskId}
-                    readOnly
-                    createLabel="Предложить задачу"
-                    onCreateTask={() => setModal('suggest')}
-                    activeId={null}
-                    setActiveId={() => {}}
-                  />
+                  <>
+                    <ActionPanel tasks={tasks} onUpload={openUpload} onOpenTask={setSelectedTaskId} />
+                    <KanbanBoard
+                      tasks={tasks}
+                      onTaskClick={setSelectedTaskId}
+                      readOnly
+                      createLabel="Предложить задачу"
+                      onCreateTask={() => setModal('suggest')}
+                      activeId={null}
+                      setActiveId={() => {}}
+                    />
+                  </>
+                ) : view === 'feed' ? (
+                  <ProjectFeed tasks={tasks} onOpenTask={setSelectedTaskId} onReply={reply} />
                 ) : (
                   <KnowledgeBase clientFacingOnly />
                 )}
