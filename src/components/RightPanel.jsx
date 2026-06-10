@@ -1,11 +1,9 @@
-import React from 'react';
-import { Send, BookOpen, PlusCircle, HelpCircle } from 'lucide-react';
+import { Send, PlusCircle, HelpCircle } from 'lucide-react';
 
-export default function RightPanel({ onCreateTask, onOpenKb }) {
+export default function RightPanel({ onCreateTask }) {
   const actions = [
     { id: 'add', icon: PlusCircle, label: 'Контент', color: 'text-[#3C50B4]', onClick: onCreateTask },
     { id: 'tg', icon: Send, label: 'Чат в TG', color: 'text-[#229ED9]', onClick: () => window.open('https://t.me/transparent_flow_bot', '_blank') },
-    { id: 'kb', icon: BookOpen, label: 'Инструкции', color: 'text-[#FFD700]', onClick: onOpenKb },
   ];
 
   return (
