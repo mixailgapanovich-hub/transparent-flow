@@ -408,6 +408,7 @@ The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 
 - **Internal tasks:** `tasks.is_internal` hides a task from the client entirely (board, downloads, everything).
 - **Anchored comments (Google-Docs style):** `task_comments.anchor` JSONB = `{start, end, quote}` — character offsets into the plaintext description + the quoted text. `AnchoredDescription.jsx` renders highlights and a selection popover; falls back to matching by `quote` if offsets drift. `anchor = null` means a normal whole-task comment.
 - **Client actions:** comment, upload content (to a `waiting` task), suggest a task (`task_suggestions`), ask a question. Suggestions/questions are project-scoped `task_events` (no `task_id`).
+- **Client-experience views (frontend-only, reuse the `getProjectView` DTO):** `ActionPanel.jsx` — a "Требует вашего внимания" card atop the board listing tasks awaiting the client (`waiting` → upload, `review`+pending → approve); `ProjectFeed.jsx` — a "Лента" view aggregating every task's `comments[]` into per-task conversation cards with inline reply (`api.client.comment` → `replaceTask`). Header switcher in `ClientApp` is now Доска / Лента / База знаний.
 - PM opens the same cabinet via ProjectsView → "Клиентский вид" (`App.openClientView`), issuing/reusing the token through `/api/projects/:id/client-link`.
 
 ### Notifications center (Stage 2, migration 005)
