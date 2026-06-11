@@ -216,16 +216,15 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly
 
 const BoardProgress = ({ tasks }) => {
   const stats = useMemo(() => {
+    // Готовность считаем по ВЕСУ задач; невыставленный вес = 1.
+    const w = (t) => (Number.isInteger(t.weight) && t.weight >= 1 ? t.weight : 1);
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'done').length;
-    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-    const totalPoints = tasks.reduce((acc, t) => acc + (t.storyPoints || 1), 0);
-    const completedPoints = tasks
-      .filter(t => t.status === 'done')
-      .reduce((acc, t) => acc + (t.storyPoints || 1), 0);
-    const remainingPoints = totalPoints - completedPoints;
-
-    return { percentage, completed, total, remainingPoints };
+    const totalW = tasks.reduce((acc, t) => acc + w(t), 0);
+    const doneW = tasks.filter(t => t.status === 'done').reduce((acc, t) => acc + w(t), 0);
+    const percentage = totalW > 0 ? Math.round((doneW / totalW) * 100) : 0;
+    const unset = tasks.filter(t => t.weight == null).length;
+    return { percentage, completed, total, doneW, totalW, unset };
   }, [tasks]);
 
   return (
@@ -252,8 +251,14 @@ const BoardProgress = ({ tasks }) => {
           </div>
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-blue-400" />
-            <span className="font-bold uppercase tracking-wider">Осталось: {stats.remainingPoints} Story Points</span>
+            <span className="font-bold uppercase tracking-wider">По весу: {stats.doneW} / {stats.totalW}</span>
           </div>
+          {stats.unset > 0 && (
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-amber-400" />
+              <span className="font-bold uppercase tracking-wider">Вес не задан: {stats.unset}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

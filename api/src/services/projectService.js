@@ -59,7 +59,9 @@ export async function listProjects() {
         c.telegram_chat_id,
         c.telegram_username,
         COUNT(t.id)::int                                              AS tasks_total,
-        COUNT(t.id) FILTER (WHERE t.status = 'done')::int             AS tasks_done
+        COUNT(t.id) FILTER (WHERE t.status = 'done')::int             AS tasks_done,
+        COALESCE(SUM(CASE WHEN t.id IS NOT NULL THEN COALESCE(t.weight, 1) ELSE 0 END), 0)::int AS weight_total,
+        COALESCE(SUM(CASE WHEN t.status = 'done'  THEN COALESCE(t.weight, 1) ELSE 0 END), 0)::int AS weight_done
      FROM projects p
      JOIN clients  c ON c.id = p.client_id
      LEFT JOIN tasks t ON t.project_id = p.id
@@ -73,7 +75,10 @@ export async function listProjects() {
 function mapProjectRow(row) {
   const total = row.tasks_total || 0;
   const done = row.tasks_done || 0;
-  const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+  // Готовность — по весу задач (невыставленный вес = 1).
+  const wt = Number(row.weight_total) || 0;
+  const wd = Number(row.weight_done) || 0;
+  const progress = wt > 0 ? Math.round((wd / wt) * 100) : 0;
   return {
     id: row.id,
     slug: row.slug,
@@ -103,7 +108,9 @@ export async function getProjectById(id) {
             c.id AS client_id, c.company_name AS client_name, c.email AS client_email,
             c.telegram_chat_id, c.telegram_username,
             COUNT(t.id)::int AS tasks_total,
-            COUNT(t.id) FILTER (WHERE t.status = 'done')::int AS tasks_done
+            COUNT(t.id) FILTER (WHERE t.status = 'done')::int AS tasks_done,
+            COALESCE(SUM(CASE WHEN t.id IS NOT NULL THEN COALESCE(t.weight, 1) ELSE 0 END), 0)::int AS weight_total,
+            COALESCE(SUM(CASE WHEN t.status = 'done'  THEN COALESCE(t.weight, 1) ELSE 0 END), 0)::int AS weight_done
        FROM projects p
        JOIN clients c ON c.id = p.client_id
        LEFT JOIN tasks t ON t.project_id = p.id

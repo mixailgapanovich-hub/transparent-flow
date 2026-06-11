@@ -102,6 +102,7 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
     deadline: normalizeDeadline(task?.deadline),
     tag: task?.tag ?? 'Обычная',
     isInternal: task?.isInternal ?? false,
+    weight: task?.weight ?? '', // '' = вес не задан
   };
 
   const [draft, setDraft] = useState({
@@ -168,7 +169,8 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
       draft.status !== (task.status ?? 'backlog') ||
       draft.deadline !== normalizeDeadline(task.deadline) ||
       draft.tag !== (task.tag ?? 'Обычная') ||
-      draft.isInternal !== (task.isInternal ?? false));
+      draft.isInternal !== (task.isInternal ?? false) ||
+      (draft.weight === '' ? null : draft.weight) !== (task.weight ?? null));
 
   const allowedStatuses = useMemo(
     () => getAllowedStatuses(task?.status ?? 'backlog', { isAdmin }),
@@ -207,6 +209,7 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
       tag: draft.tag,
       isImportant: draft.tag === 'Ключевая',
       isInternal: draft.isInternal,
+      weight: draft.weight === '' ? null : draft.weight,
     });
   };
 
@@ -696,13 +699,13 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
               </div>
               {draft.status === 'client-uploaded' && (
                 <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-3 text-xs font-semibold text-teal-700">
-                  <p>Клиент загрузил материалы. Проверьте их и зафиксируйте приём.</p>
+                  <p>Клиент загрузил материалы. Примите их — задача вернётся в работу, дальше можно доработать или отправить на согласование.</p>
                   <button
                     type="button"
                     onClick={() => onAcceptContent?.()}
                     className="mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700"
                   >
-                    Принять контент (отправить акт клиенту)
+                    Принять материалы (в работу)
                   </button>
                 </div>
               )}
@@ -939,6 +942,22 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                 <span className="block text-[11px] text-slate-400">Скрыта от клиента в его кабинете</span>
               </span>
             </label>
+
+            <div className="mt-6">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Вес задачи (1–10)</label>
+              {draft.weight === '' || draft.weight == null ? (
+                <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <span className="text-xs font-semibold text-amber-700">Вес не задан</span>
+                  <button type="button" onClick={() => setDraft((p) => ({ ...p, weight: 5 }))} className="text-xs font-bold text-[#3C50B4] hover:underline">Задать</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <input type="range" min="1" max="10" value={draft.weight} onChange={(e) => setDraft((p) => ({ ...p, weight: Number(e.target.value) }))} className="flex-1 accent-[#3C50B4]" />
+                  <span className="w-6 text-center text-sm font-black text-[#3C50B4]">{draft.weight}</span>
+                  <button type="button" onClick={() => setDraft((p) => ({ ...p, weight: '' }))} className="text-slate-300 hover:text-red-500" aria-label="Сбросить вес"><X size={14} /></button>
+                </div>
+              )}
+            </div>
 
             <div className="mt-6">
               <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">

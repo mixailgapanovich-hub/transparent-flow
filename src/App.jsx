@@ -19,6 +19,7 @@ import BottomNav from './components/BottomNav';
 import ManagementView from './components/management/ManagementView';
 import ProjectInfoModal from './components/project-info/ProjectInfoModal';
 import DashboardView from './components/DashboardView';
+import ClientRequestsModal from './components/ClientRequestsModal';
 
 const PROJECT_STATUS_RU = { active: 'Активный', paused: 'Пауза', waiting: 'Ждёт', completed: 'Завершён' };
 
@@ -49,6 +50,8 @@ export default function App() {
   const [reviewIntentId, setReviewIntentId] = useState(null);
   // «О проекте»: открытый проект (объект) для панели описания/контактов/доступов.
   const [infoProject, setInfoProject] = useState(null);
+  // «Ссылки клиенту»: панель задач, ожидающих материалов.
+  const [requestsOpen, setRequestsOpen] = useState(false);
 
   // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
   const [authChecked, setAuthChecked] = useState(false);
@@ -275,9 +278,9 @@ export default function App() {
     try {
       const updated = await api.acceptContent(taskId);
       replaceTask(updated);
-      showToast('success', 'Контент принят. Клиенту отправлено подтверждающее письмо.');
+      showToast('success', 'Материалы приняты — задача вернулась в работу.');
     } catch (err) {
-      showToast('error', 'Не удалось принять контент: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось принять материалы: ' + (err.detail || err.message));
     }
   };
 
@@ -548,7 +551,7 @@ export default function App() {
 
           {/* Правая панель (Utility Panel) */}
           <RightPanel
-            onCreateTask={createTask}
+            onContentRequests={() => setRequestsOpen(true)}
             onProjectInfo={currentProject ? () => setInfoProject(currentProject) : undefined}
           />
         </div>
@@ -670,6 +673,14 @@ export default function App() {
           projectId={infoProject.id}
           projectName={infoProject.name}
           onClose={() => setInfoProject(null)}
+        />
+      )}
+
+      {requestsOpen && (
+        <ClientRequestsModal
+          tasks={tasks}
+          onOpenTask={(id) => { setRequestsOpen(false); openTask(id); }}
+          onClose={() => setRequestsOpen(false)}
         />
       )}
 

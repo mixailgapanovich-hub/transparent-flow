@@ -1,8 +1,8 @@
-import { Send, PlusCircle, Info } from 'lucide-react';
+import { Send, Link2, Info } from 'lucide-react';
 
-export default function RightPanel({ onCreateTask, onProjectInfo }) {
+export default function RightPanel({ onContentRequests, onProjectInfo }) {
   const actions = [
-    { id: 'add', icon: PlusCircle, label: 'Контент', color: 'text-[#3C50B4]', onClick: onCreateTask },
+    { id: 'links', icon: Link2, label: 'Ссылки клиенту', color: 'text-[#3C50B4]', onClick: onContentRequests },
     { id: 'tg', icon: Send, label: 'Чат в TG', color: 'text-[#229ED9]', onClick: () => window.open('https://t.me/transparent_flow_bot', '_blank') },
   ];
 

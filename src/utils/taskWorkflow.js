@@ -5,7 +5,7 @@ export const STATUS_TRANSITIONS = {
   waiting: ['client-uploaded'],
   'client-uploaded': ['in-progress', 'review', 'done', 'waiting'],
   review: ['done', 'in-progress'],
-  done: [],
+  done: ['in-progress'], // можно переоткрыть задачу (вернуть в работу)
 };
 
 function adminRollbackStatuses(fromStatus) {

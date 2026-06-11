@@ -22,8 +22,10 @@ export default function DashboardView({ tasks = [], projects = [], onOpenProject
   const [now] = useState(() => Date.now());
   const { stats, attention } = useMemo(() => {
     const by = (s) => tasks.filter((t) => t.status === s).length;
-    const total = tasks.length;
+    const w = (t) => (Number.isInteger(t.weight) && t.weight >= 1 ? t.weight : 1);
     const done = by('done');
+    const totalW = tasks.reduce((a, t) => a + w(t), 0);
+    const doneW = tasks.filter((t) => t.status === 'done').reduce((a, t) => a + w(t), 0);
     const att = tasks
       .filter((t) => t.status === 'client-uploaded'
         || (t.status !== 'done' && t.deadline && new Date(t.deadline).getTime() < now))
@@ -39,7 +41,7 @@ export default function DashboardView({ tasks = [], projects = [], onOpenProject
         waiting: by('waiting'),
         review: by('review'),
         done,
-        progress: total > 0 ? Math.round((done / total) * 100) : 0,
+        progress: totalW > 0 ? Math.round((doneW / totalW) * 100) : 0,
       },
       attention: att,
     };

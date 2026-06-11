@@ -75,8 +75,9 @@ export const api = {
     json('POST', `/api/tasks/${id}/assignees`, { userId }),
   requestClient: (id) =>
     json('POST', `/api/tasks/${id}/request-client`),
+  // Принять материалы клиента: задача возвращается «в работу» (не закрывается авто).
   acceptContent: (id) =>
-    json('POST', `/api/tasks/${id}/transition`, { toStatus: 'done' }),
+    json('POST', `/api/tasks/${id}/transition`, { toStatus: 'in-progress' }),
 
   // Цикл согласования (PM)
   submitForReview: (id, { message = '', link = '', files = [] } = {}) => {
