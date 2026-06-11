@@ -10,7 +10,6 @@ import GuestUploadPage from './components/GuestUploadPage';
 import ClientApp from './components/client/ClientApp';
 import LoginScreen from './components/LoginScreen';
 import { api } from './api/client';
-import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
 import { useToastState, ToastContainer } from './components/Toast';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
@@ -19,6 +18,9 @@ import SettingsModal from './components/SettingsModal';
 import BottomNav from './components/BottomNav';
 import ManagementView from './components/management/ManagementView';
 import ProjectInfoModal from './components/project-info/ProjectInfoModal';
+import DashboardView from './components/DashboardView';
+
+const PROJECT_STATUS_RU = { active: 'Активный', paused: 'Пауза', waiting: 'Ждёт', completed: 'Завершён' };
 
 export default function App() {
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
@@ -487,41 +489,48 @@ export default function App() {
       </div>
     </div>
   ) : activeTab === 'dashboard' ? (
-    <KanbanBoard
-      tasks={tasks.filter(t => !t.projectId || t.projectId === 'proj-eco')}
-      setTasks={setTasks}
-      onChangeStatus={updateTaskStatus}
-      onSubmitForReview={openSubmitForReview}
-      onAddDependency={addDependency}
-      onRemoveDependency={removeDependency}
-      onLoadLayout={loadTaskLayout}
-      onSaveLayout={saveTaskLayout}
-      onTaskClick={openTask}
-      onCreateTask={createTask}
-      isAdmin={isAdmin}
-      activeId={activeId}
-      setActiveId={setActiveId}
+    <DashboardView
+      tasks={tasks}
+      projects={projects}
+      onOpenProject={(slug) => { setProjectFilter(slug); setActiveTab('tasks'); }}
+      onOpenTask={openTask}
     />
   ) : activeTab === 'tasks' ? (
-    <KanbanBoard
-      tasks={projectFilter ? tasks.filter(t => t.projectId === projectFilter) : tasks}
-      setTasks={setTasks}
-      onChangeStatus={updateTaskStatus}
-      onSubmitForReview={openSubmitForReview}
-      onAddDependency={addDependency}
-      onRemoveDependency={removeDependency}
-      onLoadLayout={loadTaskLayout}
-      onSaveLayout={saveTaskLayout}
-      onTaskClick={openTask}
-      onCreateTask={createTask}
-      isAdmin={isAdmin}
-      activeId={activeId}
-      setActiveId={setActiveId}
-      showProjectBadge
-      showColumnFilter
-      projectFilterLabel={projectFilter ? (PROJECT_BADGE_STYLES[projectFilter]?.label ?? projectFilter) : null}
-      onClearProjectFilter={() => setProjectFilter(null)}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      {currentProject && (
+        <div className="mb-4 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#3C50B4]/15 bg-[#3C50B4]/[0.04] px-5 py-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#3C50B4]/60">Проект</p>
+            <h2 className="text-lg font-black text-slate-900 leading-tight">{currentProject.name}</h2>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500">{PROJECT_STATUS_RU[currentProject.status] ?? currentProject.status}</span>
+            <span className="rounded-lg bg-[#3C50B4]/5 px-2.5 py-1 text-sm font-black text-[#3C50B4]">{currentProject.progress}%</span>
+            <button onClick={() => setInfoProject(currentProject)} className="text-xs font-bold text-[#3C50B4] hover:underline">О проекте</button>
+            <button onClick={() => setProjectFilter(null)} className="text-xs font-bold text-slate-400 hover:text-slate-600">Все проекты</button>
+          </div>
+        </div>
+      )}
+      <div className="min-h-0 flex-1">
+        <KanbanBoard
+          tasks={projectFilter ? tasks.filter(t => t.projectId === projectFilter) : tasks}
+          setTasks={setTasks}
+          onChangeStatus={updateTaskStatus}
+          onSubmitForReview={openSubmitForReview}
+          onAddDependency={addDependency}
+          onRemoveDependency={removeDependency}
+          onLoadLayout={loadTaskLayout}
+          onSaveLayout={saveTaskLayout}
+          onTaskClick={openTask}
+          onCreateTask={createTask}
+          isAdmin={isAdmin}
+          activeId={activeId}
+          setActiveId={setActiveId}
+          showProjectBadge
+          showColumnFilter
+        />
+      </div>
+    </div>
   ) : activeTab === 'projects' ? (
     <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} onClientView={openClientView} onProjectInfo={(p) => setInfoProject(p)} />
   ) : activeTab === 'kb' ? (
