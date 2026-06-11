@@ -8,6 +8,7 @@ import { clientAuth } from '../middleware/clientAuth.js';
 import { makeUploader, MAX_FILES, multerErrorHandler } from '../middleware/uploads.js';
 import { STORAGE_ROOT } from '../services/guestService.js';
 import { getLayout, savePositions } from '../services/layoutService.js';
+import { getProjectInfo } from '../services/projectInfoService.js';
 import {
   getProjectView,
   addClientComment,
@@ -72,6 +73,11 @@ router.get('/:token/files/:fileId/download', wrap(async (req, res) => {
 router.post('/:token/suggest-task', wrap(async (req, res) => {
   const { title, description } = req.body ?? {};
   res.status(201).json(await suggestTask(req.clientCtx, { title, description }));
+}));
+
+// «О проекте» для клиента (доступы — только с флагом visibleToClient).
+router.get('/:token/info', wrap(async (req, res) => {
+  res.json(await getProjectInfo(req.clientCtx.project.id, { forClient: true }));
 }));
 
 // Раскладка майндмапа клиента (audience='client', только задачи его проекта).

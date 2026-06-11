@@ -156,6 +156,10 @@ export const api = {
   getTaskLayout: () => request('/api/tasks/layout'),
   saveTaskLayout: (positions) => json('PUT', '/api/tasks/layout', { positions }),
 
+  // «О проекте» (PM: смотрит и правит)
+  getProjectInfo: (projectId) => request(`/api/projects/${projectId}/info`),
+  saveProjectInfo: (projectId, data) => json('PUT', `/api/projects/${projectId}/info`, data),
+
   // Клиентский кабинет (доступ по проектному токену, без логина)
   client: {
     get: (token) => request(`/api/client/${token}`),
@@ -170,6 +174,8 @@ export const api = {
     // Раскладка майндмапа клиента (audience='client')
     getLayout: (token) => request(`/api/client/${token}/layout`),
     saveLayout: (token, positions) => json('PUT', `/api/client/${token}/layout`, { positions }),
+    // «О проекте» (клиент: только чтение, доступы отфильтрованы)
+    getInfo: (token) => request(`/api/client/${token}/info`),
     suggestTask: (token, { title, description }) =>
       json('POST', `/api/client/${token}/suggest-task`, { title, description }),
     question: (token, text) =>

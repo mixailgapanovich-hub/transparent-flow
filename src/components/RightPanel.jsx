@@ -1,6 +1,6 @@
-import { Send, PlusCircle, HelpCircle } from 'lucide-react';
+import { Send, PlusCircle, Info } from 'lucide-react';
 
-export default function RightPanel({ onCreateTask }) {
+export default function RightPanel({ onCreateTask, onProjectInfo }) {
   const actions = [
     { id: 'add', icon: PlusCircle, label: 'Контент', color: 'text-[#3C50B4]', onClick: onCreateTask },
     { id: 'tg', icon: Send, label: 'Чат в TG', color: 'text-[#229ED9]', onClick: () => window.open('https://t.me/transparent_flow_bot', '_blank') },
@@ -21,16 +21,19 @@ export default function RightPanel({ onCreateTask }) {
         </button>
       ))}
 
-      <div className="mt-auto p-4 bg-[#3C50B4]/5 rounded-2xl hidden lg:block">
-        <HelpCircle size={20} className="text-[#3C50B4] mb-2" />
-        <p className="text-[11px] text-[#3C50B4] font-medium leading-tight">Нужна помощь с потоком?</p>
+      {/* «О проекте» — описание, контакты и доступы текущего проекта (PM правит) */}
+      {onProjectInfo && (
         <button
-          onClick={() => window.open('mailto:curator@adena.digital')}
-          className="text-[10px] font-black uppercase mt-2 text-[#3C50B4] underline"
+          onClick={onProjectInfo}
+          className="mt-auto flex items-center gap-3 rounded-2xl border border-[#3C50B4]/20 bg-[#3C50B4]/5 p-3 lg:p-4 text-left transition-all hover:bg-[#3C50B4]/10 group"
         >
-          Написать куратору
+          <Info size={22} className="text-[#3C50B4] group-hover:scale-110 transition-transform shrink-0" />
+          <span className="hidden lg:block">
+            <span className="block text-sm font-bold text-[#3C50B4]">О проекте</span>
+            <span className="block text-[10px] text-[#3C50B4]/60">Доступы, контакты, описание</span>
+          </span>
         </button>
-      </div>
+      )}
     </aside>
   );
 }

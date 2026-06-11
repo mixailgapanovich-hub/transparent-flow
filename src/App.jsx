@@ -18,6 +18,7 @@ import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
 import BottomNav from './components/BottomNav';
 import ManagementView from './components/management/ManagementView';
+import ProjectInfoModal from './components/project-info/ProjectInfoModal';
 
 export default function App() {
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
@@ -44,6 +45,8 @@ export default function App() {
   const [projectFilter, setProjectFilter] = useState(null);
   // Намерение «отправить на согласование» из drag-and-drop: открыть задачу с раскрытой формой.
   const [reviewIntentId, setReviewIntentId] = useState(null);
+  // «О проекте»: открытый проект (объект) для панели описания/контактов/доступов.
+  const [infoProject, setInfoProject] = useState(null);
 
   // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
   const [authChecked, setAuthChecked] = useState(false);
@@ -325,6 +328,11 @@ export default function App() {
   const loadTaskLayout = useCallback(() => api.getTaskLayout(), []);
   const saveTaskLayout = useCallback((positions) => api.saveTaskLayout(positions), []);
 
+  // Текущий проект для кнопки «О проекте» в правой панели: дашборд = proj-eco,
+  // вкладка «Задачи» = активный фильтр; иначе единого проекта нет.
+  const currentProjectSlug = activeTab === 'dashboard' ? 'proj-eco' : (activeTab === 'tasks' ? projectFilter : null);
+  const currentProject = currentProjectSlug ? (projects.find((p) => p.slug === currentProjectSlug) ?? null) : null;
+
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
   // Здесь только обновляем локальный кэш задачи свежим DTO.
   const handleGuestUploaded = (updatedTask) => {
@@ -515,7 +523,7 @@ export default function App() {
       onClearProjectFilter={() => setProjectFilter(null)}
     />
   ) : activeTab === 'projects' ? (
-    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} onClientView={openClientView} />
+    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} onClientView={openClientView} onProjectInfo={(p) => setInfoProject(p)} />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
   ) : activeTab === 'management' && isAdmin ? (
@@ -530,7 +538,10 @@ export default function App() {
           </main>
 
           {/* Правая панель (Utility Panel) */}
-          <RightPanel onCreateTask={createTask} onOpenKb={() => setActiveTab('kb')} />
+          <RightPanel
+            onCreateTask={createTask}
+            onProjectInfo={currentProject ? () => setInfoProject(currentProject) : undefined}
+          />
         </div>
       </div>
 
@@ -641,6 +652,15 @@ export default function App() {
           onToast={showToast}
           onClose={() => setIsNotificationsPageOpen(false)}
           onTaskCreated={(task) => setTasks((prev) => [task, ...prev])}
+        />
+      )}
+
+      {infoProject && (
+        <ProjectInfoModal
+          mode="pm"
+          projectId={infoProject.id}
+          projectName={infoProject.name}
+          onClose={() => setInfoProject(null)}
         />
       )}
 

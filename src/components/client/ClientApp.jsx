@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, BookOpen, LayoutGrid, Bell } from 'lucide-react';
+import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, BookOpen, LayoutGrid, Bell, Info } from 'lucide-react';
 import { api } from '../../api/client';
 import KanbanBoard from '../KanbanBoard';
 import TaskModal from '../task-modal/TaskModal';
@@ -8,6 +8,7 @@ import SendContentModal from './SendContentModal';
 import AskQuestionModal from './AskQuestionModal';
 import SuggestTaskModal from './SuggestTaskModal';
 import ActionPanel from './ActionPanel';
+import ProjectInfoModal from '../project-info/ProjectInfoModal';
 import NotificationsPage from '../notifications/NotificationsPage';
 import { useToastState, ToastContainer } from '../Toast';
 
@@ -34,6 +35,7 @@ export default function ClientApp({ token }) {
   const [uploadTaskId, setUploadTaskId] = useState(null);
   const [activeId, setActiveId] = useState(null); // dnd: переупорядочивание в своей колонке
   const [notifOpen, setNotifOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { toasts, showToast } = useToastState();
 
@@ -195,6 +197,7 @@ export default function ClientApp({ token }) {
           <aside className="hidden lg:flex w-72 shrink-0 flex-col gap-3 border-l border-slate-100 p-6 bg-white overflow-y-auto">
             <ActionPanel tasks={tasks} onUpload={openUpload} onOpenTask={setSelectedTaskId} />
             <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Действия</h2>
+            <ActionBtn icon={Info} label="О проекте" onClick={() => setInfoOpen(true)} />
             <ActionBtn icon={CloudUpload} label="Прислать контент" onClick={() => { setUploadTaskId(null); setModal('send'); }} />
             {data.supportChatUrl && (
               <ActionBtn icon={MessageCircle} label="Telegram-чат" onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} />
@@ -206,6 +209,7 @@ export default function ClientApp({ token }) {
 
         {/* Мобильная панель действий */}
         <div className="lg:hidden flex items-center gap-2 border-t border-slate-100 bg-white px-3 py-2 overflow-x-auto shrink-0">
+          <button onClick={() => setInfoOpen(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><Info size={15} /> О проекте</button>
           <button onClick={() => { setUploadTaskId(null); setModal('send'); }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#3C50B4] text-white text-xs font-bold shrink-0"><CloudUpload size={15} /> Контент</button>
           {data.supportChatUrl && <button onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><MessageCircle size={15} /> Чат</button>}
           <button onClick={() => setModal('ask')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><HelpCircle size={15} /> Вопрос</button>
@@ -260,6 +264,15 @@ export default function ClientApp({ token }) {
           source={{ kind: 'client', token }}
           onToast={showToast}
           onClose={() => setNotifOpen(false)}
+        />
+      )}
+
+      {infoOpen && (
+        <ProjectInfoModal
+          mode="client"
+          token={token}
+          projectName={data.project.name}
+          onClose={() => setInfoOpen(false)}
         />
       )}
 
