@@ -321,6 +321,10 @@ export default function App() {
     }
   };
 
+  // Раскладка майндмапа (PM-аудитория) — стабильные ссылки, чтобы не перезагружать граф.
+  const loadTaskLayout = useCallback(() => api.getTaskLayout(), []);
+  const saveTaskLayout = useCallback((positions) => api.saveTaskLayout(positions), []);
+
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
   // Здесь только обновляем локальный кэш задачи свежим DTO.
   const handleGuestUploaded = (updatedTask) => {
@@ -482,6 +486,8 @@ export default function App() {
       onSubmitForReview={openSubmitForReview}
       onAddDependency={addDependency}
       onRemoveDependency={removeDependency}
+      onLoadLayout={loadTaskLayout}
+      onSaveLayout={saveTaskLayout}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}
@@ -496,6 +502,8 @@ export default function App() {
       onSubmitForReview={openSubmitForReview}
       onAddDependency={addDependency}
       onRemoveDependency={removeDependency}
+      onLoadLayout={loadTaskLayout}
+      onSaveLayout={saveTaskLayout}
       onTaskClick={openTask}
       onCreateTask={createTask}
       isAdmin={isAdmin}

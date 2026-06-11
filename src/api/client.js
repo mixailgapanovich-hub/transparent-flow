@@ -152,6 +152,10 @@ export const api = {
   removeDependency: (taskId, dependsOnId) =>
     json('DELETE', `/api/tasks/${taskId}/dependencies/${dependsOnId}`),
 
+  // Раскладка майндмапа (PM-аудитория)
+  getTaskLayout: () => request('/api/tasks/layout'),
+  saveTaskLayout: (positions) => json('PUT', '/api/tasks/layout', { positions }),
+
   // Клиентский кабинет (доступ по проектному токену, без логина)
   client: {
     get: (token) => request(`/api/client/${token}`),
@@ -163,6 +167,9 @@ export const api = {
     requestChanges: (token, taskId, comment) =>
       json('POST', `/api/client/${token}/tasks/${taskId}/approval/changes`, { comment }),
     fileDownloadUrl: (token, fileId) => `/api/client/${token}/files/${fileId}/download`,
+    // Раскладка майндмапа клиента (audience='client')
+    getLayout: (token) => request(`/api/client/${token}/layout`),
+    saveLayout: (token, positions) => json('PUT', `/api/client/${token}/layout`, { positions }),
     suggestTask: (token, { title, description }) =>
       json('POST', `/api/client/${token}/suggest-task`, { title, description }),
     question: (token, text) =>

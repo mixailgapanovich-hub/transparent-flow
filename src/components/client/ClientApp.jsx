@@ -59,6 +59,10 @@ export default function ClientApp({ token }) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   }, []);
 
+  // Раскладка майндмапа клиента (audience='client') — стабильные ссылки.
+  const loadLayout = useCallback(() => api.client.getLayout(token), [token]);
+  const saveLayout = useCallback((positions) => api.client.saveLayout(token, positions), [token]);
+
   const sendComment = async (message, anchor) => {
     if (!selectedTask) return;
     try {
@@ -174,6 +178,8 @@ export default function ClientApp({ token }) {
                       reorderable
                       createLabel="Предложить задачу"
                       onCreateTask={() => setModal('suggest')}
+                      onLoadLayout={loadLayout}
+                      onSaveLayout={saveLayout}
                       activeId={activeId}
                       setActiveId={setActiveId}
                     />

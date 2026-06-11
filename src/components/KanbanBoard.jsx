@@ -271,6 +271,8 @@ export default function KanbanBoard({
   onSubmitForReview,
   onAddDependency,
   onRemoveDependency,
+  onLoadLayout,
+  onSaveLayout,
   columns: propColumns,
   showProjectBadge = false,
   showColumnFilter = false,
@@ -572,6 +574,8 @@ export default function KanbanBoard({
             editable={!readOnly}
             onAddDependency={onAddDependency}
             onRemoveDependency={onRemoveDependency}
+            onLoadLayout={onLoadLayout}
+            onSaveLayout={onSaveLayout}
           />
         </div>
       )}

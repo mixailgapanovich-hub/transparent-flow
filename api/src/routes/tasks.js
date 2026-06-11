@@ -18,6 +18,7 @@ import {
 } from '../services/taskService.js';
 import { submitForReview, cancelReview } from '../services/approvalService.js';
 import { STORAGE_ROOT } from '../services/guestService.js';
+import { getLayout, savePositions } from '../services/layoutService.js';
 import { makeUploader, MAX_FILES, multerErrorHandler } from '../middleware/uploads.js';
 
 const router = Router();
@@ -25,6 +26,14 @@ const upload = makeUploader();
 
 /** Универсальный обёрточный wrapper для async-handler-ов. */
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+// ── Раскладка майндмапа (PM-аудитория). ДО '/:id', иначе :id поймает 'layout'. ──
+router.get('/layout', wrap(async (_req, res) => {
+  res.json(await getLayout('pm'));
+}));
+router.put('/layout', wrap(async (req, res) => {
+  res.json(await savePositions('pm', req.body?.positions ?? []));
+}));
 
 // ── Чтение ────────────────────────────────────────────────────────────────
 

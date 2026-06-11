@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { clientAuth } from '../middleware/clientAuth.js';
 import { makeUploader, MAX_FILES, multerErrorHandler } from '../middleware/uploads.js';
 import { STORAGE_ROOT } from '../services/guestService.js';
+import { getLayout, savePositions } from '../services/layoutService.js';
 import {
   getProjectView,
   addClientComment,
@@ -71,6 +72,14 @@ router.get('/:token/files/:fileId/download', wrap(async (req, res) => {
 router.post('/:token/suggest-task', wrap(async (req, res) => {
   const { title, description } = req.body ?? {};
   res.status(201).json(await suggestTask(req.clientCtx, { title, description }));
+}));
+
+// Раскладка майндмапа клиента (audience='client', только задачи его проекта).
+router.get('/:token/layout', wrap(async (req, res) => {
+  res.json(await getLayout('client', { projectId: req.clientCtx.project.id }));
+}));
+router.put('/:token/layout', wrap(async (req, res) => {
+  res.json(await savePositions('client', req.body?.positions ?? [], { projectId: req.clientCtx.project.id }));
 }));
 
 // Задать вопрос.
