@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import { pool } from './db/pool.js';
@@ -32,12 +34,35 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
+// За одним реверс-прокси (nginx/Cloudflare) — чтобы rate-limit видел реальный IP.
+app.set('trust proxy', 1);
+
+// Безопасные заголовки. CSP отключаем (это JSON-API, не отдаём HTML), а
+// Cross-Origin-Resource-Policy ставим cross-origin, чтобы не ломать скачивание
+// файлов/картинок при разных origin фронта и API.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 
 app.use('/api', attachUser);
+
+// Анти-брутфорс на чувствительных auth-эндпоинтах (вход + смена пароля).
+// Обычные операции и опрос (~10с) не лимитируем, чтобы не мешать работе.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много попыток. Попробуйте позже.' },
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/change-password', authLimiter);
 
 // Расширенный health: одним GET-ом видно состояние БД, планировщика и каналов.
 app.get('/api/health', async (_req, res) => {
