@@ -12,15 +12,17 @@ import ProjectInfoModal from '../project-info/ProjectInfoModal';
 import NotificationsPage from '../notifications/NotificationsPage';
 import { useToastState, ToastContainer } from '../Toast';
 
-function ActionBtn({ icon: Icon, label, onClick, disabled }) {
+// Иконка-действие в шапке (как у PM-вида) — единый стиль с тултипом.
+function HeaderAction({ icon: Icon, label, onClick, color = 'hover:text-[#3C50B4]' }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
-      className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:border-[#3C50B4] hover:text-[#3C50B4] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
+      title={label}
+      aria-label={label}
+      className={`p-2 text-slate-400 transition-colors ${color}`}
     >
-      <Icon size={18} className="shrink-0" /> {label}
+      <Icon size={20} />
     </button>
   );
 }
@@ -147,6 +149,18 @@ export default function ClientApp({ token }) {
             >
               <BookOpen size={16} /> <span className="hidden sm:inline">База знаний</span>
             </button>
+
+            {/* Действия — иконками (десктоп); на мобиле остаётся нижняя панель */}
+            <div className="hidden md:flex items-center gap-0.5 md:pl-2 md:ml-1 md:border-l border-slate-100">
+              <HeaderAction icon={Info} label="О проекте" onClick={() => setInfoOpen(true)} />
+              <HeaderAction icon={CloudUpload} label="Прислать контент" onClick={() => { setUploadTaskId(null); setModal('send'); }} />
+              {data.supportChatUrl && (
+                <HeaderAction icon={MessageCircle} label="Telegram-чат" color="hover:text-[#229ED9]" onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} />
+              )}
+              <HeaderAction icon={HelpCircle} label="Задать вопрос" onClick={() => setModal('ask')} />
+              <HeaderAction icon={Lightbulb} label="Предложить задачу" onClick={() => setModal('suggest')} />
+            </div>
+
             <button
               onClick={() => setNotifOpen(true)}
               className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
@@ -168,10 +182,8 @@ export default function ClientApp({ token }) {
               <div className="flex-1 overflow-auto p-3 md:p-8 custom-scrollbar">
                 {view === 'board' ? (
                   <>
-                    {/* На мобиле сводка действий сверху; на десктопе она в правой панели */}
-                    <div className="lg:hidden mb-4">
-                      <ActionPanel tasks={tasks} onUpload={openUpload} onOpenTask={setSelectedTaskId} />
-                    </div>
+                    {/* «Требует вашего внимания» — баннером над доской на всю ширину */}
+                    <ActionPanel tasks={tasks} onUpload={openUpload} onOpenTask={setSelectedTaskId} />
                     <KanbanBoard
                       tasks={tasks}
                       setTasks={setTasks}
@@ -192,19 +204,6 @@ export default function ClientApp({ token }) {
               </div>
             </div>
           </main>
-
-          {/* Правая панель действий */}
-          <aside className="hidden lg:flex w-72 shrink-0 flex-col gap-3 border-l border-slate-100 p-6 bg-white overflow-y-auto">
-            <ActionPanel tasks={tasks} onUpload={openUpload} onOpenTask={setSelectedTaskId} />
-            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Действия</h2>
-            <ActionBtn icon={Info} label="О проекте" onClick={() => setInfoOpen(true)} />
-            <ActionBtn icon={CloudUpload} label="Прислать контент" onClick={() => { setUploadTaskId(null); setModal('send'); }} />
-            {data.supportChatUrl && (
-              <ActionBtn icon={MessageCircle} label="Telegram-чат" onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} />
-            )}
-            <ActionBtn icon={HelpCircle} label="Задать вопрос" onClick={() => setModal('ask')} />
-            <ActionBtn icon={Lightbulb} label="Предложить задачу" onClick={() => setModal('suggest')} />
-          </aside>
         </div>
 
         {/* Мобильная панель действий */}

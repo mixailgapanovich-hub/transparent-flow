@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, LogOut } from 'lucide-react';
+import { Bell, LogOut, Plus, Link2, Info, Send } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import NotificationsPage from './components/notifications/NotificationsPage';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
-import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
 import ClientApp from './components/client/ClientApp';
@@ -399,12 +398,15 @@ export default function App() {
     // Главный контейнер на весь экран без прокрутки самого окна
     <div className="flex h-screen w-screen bg-white text-slate-800 font-montserrat overflow-hidden">
       
-      {/* 1. Левый сайдбар — теперь он просто занимает свои 96 пикселей, ни на что не наступая */}
+      {/* 1. Левый сайдбар — навигация + последние проекты + настройки */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={(tab) => { setActiveTab(tab); setProjectFilter(null); }}
         onSettingsClick={() => setIsSettingsOpen(true)}
         isAdmin={isAdmin}
+        projects={projects}
+        onOpenProject={(slug) => { setProjectFilter(slug); setActiveTab('tasks'); }}
+        currentSlug={currentProjectSlug}
       />
 
       {/* 2. Основной контент (Центр + Право) */}
@@ -420,6 +422,46 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 md:gap-6">
+            {/* Действия проекта — иконками (бывшая правая панель) */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={createTask}
+                title="Новая задача"
+                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                aria-label="Новая задача"
+              >
+                <Plus size={20} />
+              </button>
+              <button
+                onClick={() => setRequestsOpen(true)}
+                title="Ссылки клиенту"
+                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                aria-label="Ссылки клиенту"
+              >
+                <Link2 size={20} />
+              </button>
+              {currentProject && (
+                <button
+                  onClick={() => setInfoProject(currentProject)}
+                  title="О проекте"
+                  className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                  aria-label="О проекте"
+                >
+                  <Info size={20} />
+                </button>
+              )}
+              {botUsername && (
+                <button
+                  onClick={() => window.open(`https://t.me/${botUsername}`, '_blank', 'noopener')}
+                  title="Чат в Telegram"
+                  className="p-2 text-slate-400 hover:text-[#229ED9] transition-colors"
+                  aria-label="Чат в Telegram"
+                >
+                  <Send size={20} />
+                </button>
+              )}
+            </div>
+
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen((v) => !v)}
@@ -548,12 +590,6 @@ export default function App() {
 </div>
             </div>
           </main>
-
-          {/* Правая панель (Utility Panel) */}
-          <RightPanel
-            onContentRequests={() => setRequestsOpen(true)}
-            onProjectInfo={currentProject ? () => setInfoProject(currentProject) : undefined}
-          />
         </div>
       </div>
 
