@@ -15,6 +15,7 @@ import adminRouter from './routes/admin.js';
 import clientsRouter from './routes/clients.js';
 import notificationsRouter from './routes/notifications.js';
 import suggestionsRouter from './routes/suggestions.js';
+import settingsRouter from './routes/settings.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
 import {
   initTelegram,
@@ -90,6 +91,7 @@ app.use('/api/users',    requireAuth, usersRouter);
 app.use('/api/clients',  requireAuth, clientsRouter);
 app.use('/api/notifications', requireAuth, notificationsRouter);
 app.use('/api/suggestions',   requireAuth, suggestionsRouter);
+app.use('/api/settings', requireAuth, settingsRouter); // GET — все, PUT — admin (внутри)
 app.use('/api/admin',    requireAuth, adminRouter); // role=admin проверяется внутри роута
 
 app.use((req, res) => {

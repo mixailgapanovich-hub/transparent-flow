@@ -44,11 +44,18 @@ export const api = {
   login: (email, password) => json('POST', '/api/auth/login', { email, password }),
   logout: () => json('POST', '/api/auth/logout'),
   me: () => request('/api/auth/me'),
+  updateProfile: (name) => json('PATCH', '/api/auth/profile', { name }),
+  changePassword: (currentPassword, newPassword) =>
+    json('POST', '/api/auth/change-password', { currentPassword, newPassword }),
 
   // health & lookups
   health: () => request('/api/health'),
   listUsers: () => request('/api/users'),
   listProjects: () => request('/api/projects'),
+
+  // глобальные настройки агентства (имя + ссылка на сайт)
+  getSettings: () => request('/api/settings'),
+  updateSettings: (patch) => json('PUT', '/api/settings', patch),
 
   // bot username для построения t.me/<bot>?start=<clientId> deep-link
   botInfo: async () => {

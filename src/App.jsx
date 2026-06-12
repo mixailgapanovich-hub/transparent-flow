@@ -22,6 +22,9 @@ import ClientRequestsModal from './components/ClientRequestsModal';
 
 const PROJECT_STATUS_RU = { active: 'Активный', paused: 'Пауза', waiting: 'Ждёт', completed: 'Завершён' };
 
+// Временный ID черновика новой задачи — никогда не попадёт в БД.
+const DRAFT_ID = '__new_task_draft__';
+
 export default function App() {
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
   const [currentUser, setCurrentUser] = useState(null);
@@ -33,9 +36,13 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [team, setTeam] = useState([]);
   const [botUsername, setBotUsername] = useState(null);
+  // Глобальные настройки агентства (имя + ссылка на сайт для «молнии»).
+  const [settings, setSettings] = useState({ agencyName: 'Adena Digital', agencySiteUrl: 'https://adena.by' });
   const [activeId, setActiveId] = useState(null);
   // pendingByTaskId: Map<id, lastRequestedStatus> — защита от race в optimistic updates
   const pendingByTaskId = useRef(new Map());
+  // Зеркало состояния для интервала опроса (чтобы не пересоздавать таймер на каждый чих).
+  const pollStateRef = useRef({});
   const { toasts, showToast } = useToastState();
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -94,6 +101,9 @@ export default function App() {
     api.botInfo()
       .then((info) => { if (!cancelled) setBotUsername(info?.configured ? info.botUsername : null); })
       .catch(() => {});
+    api.getSettings()
+      .then((s) => { if (!cancelled && s) setSettings(s); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [currentUser]);
 
@@ -109,6 +119,29 @@ export default function App() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [currentUser, isNotificationsPageOpen, isNotificationsOpen]);
+
+  // Реал-тайм опросом (~10с): бейдж уведомлений + доска. Чтобы не сбивать работу,
+  // обновление задач пропускается во время перетаскивания, открытой карточки,
+  // наличия черновика, незавершённых optimistic-переходов и на скрытой вкладке.
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    const id = setInterval(async () => {
+      if (document.hidden) return;
+      api.notifications.unreadCounts()
+        .then((c) => setUnreadCount(c.total ?? 0))
+        .catch(() => {});
+      const st = pollStateRef.current;
+      if (st.activeId || st.selectedTaskId || pendingByTaskId.current.size > 0) return;
+      try {
+        const data = await api.listTasks();
+        const now = pollStateRef.current;
+        if (now.activeId || now.selectedTaskId || pendingByTaskId.current.size > 0) return;
+        // Не затираем несохранённый черновик новой задачи.
+        setTasks((prev) => (prev.some((t) => t.id === DRAFT_ID) ? prev : data));
+      } catch { /* тихо — следующий тик повторит */ }
+    }, 10000);
+    return () => clearInterval(id);
+  }, [currentUser]);
 
   // Открыть клиентский вид проекта в новой вкладке (PM-превью «как видит клиент»).
   // Если токена ещё нет или доступ отозван — генерируем свежую ссылку.
@@ -144,9 +177,6 @@ export default function App() {
   const replaceTask = useCallback((updatedTask) => {
     setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
   }, []);
-
-  // Временный ID черновика — никогда не попадёт в БД
-  const DRAFT_ID = '__new_task_draft__';
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
@@ -340,6 +370,9 @@ export default function App() {
   const currentProjectSlug = activeTab === 'tasks' ? projectFilter : null;
   const currentProject = currentProjectSlug ? (projects.find((p) => p.slug === currentProjectSlug) ?? null) : null;
 
+  // Зеркалим состояние для интервала опроса (читается внутри setInterval без пересоздания).
+  useEffect(() => { pollStateRef.current = { activeId, selectedTaskId }; });
+
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
   // Здесь только обновляем локальный кэш задачи свежим DTO.
   const handleGuestUploaded = (updatedTask) => {
@@ -410,6 +443,8 @@ export default function App() {
         projects={projects}
         onOpenProject={(slug) => { setProjectFilter(slug); setActiveTab('tasks'); }}
         currentSlug={currentProjectSlug}
+        agencyName={settings.agencyName}
+        agencySiteUrl={settings.agencySiteUrl}
       />
 
       {/* 2. Основной контент (Центр + Право) */}
@@ -420,7 +455,7 @@ export default function App() {
           <div className="flex items-center gap-2 md:gap-4">
             <h1 className="text-base md:text-2xl font-black text-slate-900 font-machine tracking-tighter">Прозрачный поток</h1>
             <div className="hidden md:block px-3 py-1 bg-[#3C50B4]/5 text-[#3C50B4] text-[10px] font-black rounded-lg uppercase tracking-widest border border-[#3C50B4]/10">
-              Agency Mode
+              {settings.agencyName}
             </div>
           </div>
 
@@ -726,10 +761,19 @@ export default function App() {
         />
       )}
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+      {isSettingsOpen && (
+        <SettingsModal
+          isOpen
+          onClose={() => setIsSettingsOpen(false)}
+          currentUser={currentUser}
+          isAdmin={isAdmin}
+          settings={settings}
+          onToast={showToast}
+          onProfileUpdated={(user) => setCurrentUser(user)}
+          onSettingsUpdated={(s) => setSettings(s)}
+          onLogout={handleLogout}
+        />
+      )}
 
       <ToastContainer toasts={toasts} />
 

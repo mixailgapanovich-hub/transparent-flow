@@ -18,6 +18,8 @@ export default function Sidebar({
   projects = [],
   onOpenProject,
   currentSlug = null,
+  agencyName = 'Adena Digital',
+  agencySiteUrl = 'https://adena.by',
 }) {
   const menuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Доска' },
@@ -31,13 +33,22 @@ export default function Sidebar({
 
   return (
     <aside className="hidden md:flex w-48 h-full flex-col py-6 px-3 bg-white border-r border-slate-100 flex-shrink-0">
-      {/* Логотип + вордмарк */}
-      <div className="flex items-center gap-2.5 px-2 mb-8">
-        <div className="bg-[#3C50B4] p-2 rounded-xl shadow-lg shadow-blue-100 shrink-0">
+      {/* Логотип-«молния» ведёт на сайт агентства; вордмарк — продукт. */}
+      <a
+        href={agencySiteUrl || '#'}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={agencyName ? `${agencyName} — открыть сайт` : 'Открыть сайт'}
+        className="flex items-center gap-2.5 px-2 mb-8 group"
+      >
+        <div className="bg-[#3C50B4] p-2 rounded-xl shadow-lg shadow-blue-100 shrink-0 transition-transform group-hover:scale-105">
           <Zap className="text-white" size={20} fill="currentColor" />
         </div>
-        <span className="text-sm font-black text-slate-900 font-machine leading-none">Поток</span>
-      </div>
+        <span className="min-w-0">
+          <span className="block text-sm font-black text-slate-900 font-machine leading-none">Поток</span>
+          <span className="block truncate text-[10px] font-bold text-slate-400 group-hover:text-[#3C50B4] transition-colors">{agencyName}</span>
+        </span>
+      </a>
 
       {/* Навигация */}
       <nav className="flex flex-col gap-1">

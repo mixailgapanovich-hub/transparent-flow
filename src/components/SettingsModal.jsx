@@ -1,172 +1,176 @@
-import React from 'react';
-import { X, ChevronLeft, User, Moon, Bell, Globe, Shield, LogOut } from 'lucide-react';
+// Рабочие «Настройки»: профиль (имя), смена пароля и — для админа — настройки
+// агентства (имя + ссылка на сайт, на которую ведёт «молния» в сайдбаре).
 
-const NAV_ITEMS = [
-  { id: 'profile',  icon: User,   label: 'Профиль' },
-  { id: 'ui',       icon: Moon,   label: 'Интерфейс' },
-  { id: 'notify',   icon: Bell,   label: 'Уведомления' },
+import { useState } from 'react';
+import { X, User, Shield, Building2, LogOut, Loader2, Check } from 'lucide-react';
+import { api } from '../api/client';
+
+const NAV = [
+  { id: 'profile', icon: User, label: 'Профиль' },
   { id: 'security', icon: Shield, label: 'Безопасность' },
+  { id: 'agency', icon: Building2, label: 'Агентство', adminOnly: true },
 ];
 
-export default function SettingsModal({ isOpen, onClose }) {
+function Field({ label, children, hint }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-bold uppercase tracking-widest text-slate-500">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-[11px] text-slate-400">{hint}</span>}
+    </label>
+  );
+}
+
+const inputCls = 'w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20';
+const btnPrimary = 'flex items-center justify-center gap-2 rounded-xl bg-[#3C50B4] px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-95 disabled:opacity-60';
+
+export default function SettingsModal({
+  isOpen,
+  onClose,
+  currentUser,
+  isAdmin = false,
+  settings = { agencyName: '', agencySiteUrl: '' },
+  onToast,
+  onProfileUpdated,
+  onSettingsUpdated,
+  onLogout,
+}) {
+  const [tab, setTab] = useState('profile');
+  const [name, setName] = useState(currentUser?.name ?? '');
+  const [pwd, setPwd] = useState({ current: '', next: '', confirm: '' });
+  const [agency, setAgency] = useState({ agencyName: settings.agencyName ?? '', agencySiteUrl: settings.agencySiteUrl ?? '' });
+  const [busy, setBusy] = useState(false);
+
   if (!isOpen) return null;
 
+  const toast = (type, msg) => onToast?.(type, msg);
+
+  const saveProfile = async () => {
+    if (!name.trim()) { toast('error', 'Имя не может быть пустым'); return; }
+    setBusy(true);
+    try {
+      const { user } = await api.updateProfile(name.trim());
+      onProfileUpdated?.(user);
+      toast('success', 'Имя профиля обновлено');
+    } catch (e) {
+      toast('error', e.detail || e.message);
+    } finally { setBusy(false); }
+  };
+
+  const savePassword = async () => {
+    if (pwd.next.length < 6) { toast('error', 'Новый пароль слишком короткий (мин. 6)'); return; }
+    if (pwd.next !== pwd.confirm) { toast('error', 'Пароли не совпадают'); return; }
+    setBusy(true);
+    try {
+      await api.changePassword(pwd.current, pwd.next);
+      setPwd({ current: '', next: '', confirm: '' });
+      toast('success', 'Пароль изменён');
+    } catch (e) {
+      toast('error', e.detail || e.message);
+    } finally { setBusy(false); }
+  };
+
+  const saveAgency = async () => {
+    setBusy(true);
+    try {
+      const s = await api.updateSettings({ agencyName: agency.agencyName.trim(), agencySiteUrl: agency.agencySiteUrl.trim() });
+      onSettingsUpdated?.(s);
+      toast('success', 'Настройки агентства сохранены');
+    } catch (e) {
+      toast('error', e.detail || e.message);
+    } finally { setBusy(false); }
+  };
+
+  const navItems = NAV.filter((n) => !n.adminOnly || isAdmin);
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-6 md:p-12">
-      {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300"
-        onClick={onClose}
-      />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 md:p-6">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl md:h-auto md:max-h-[85vh] md:max-w-2xl md:rounded-3xl">
+        <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <h2 className="text-base font-black text-slate-900 font-machine">Настройки</h2>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600" aria-label="Закрыть"><X size={18} /></button>
+        </header>
 
-      {/* Контейнер: full-screen на мобилке, max-w-5xl 85vh на десктопе */}
-      <div className="relative bg-white w-full h-full md:max-w-5xl md:h-[85vh] md:rounded-[48px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col md:flex-row">
-
-        {/* ── Левая панель (Sidebar настроек) ─────────────────────────── */}
-        <div className="w-full md:w-72 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-100 flex flex-col shrink-0">
-
-          {/* Мобильный header с кнопкой Назад */}
-          <div className="flex items-center gap-3 px-4 py-3 md:hidden border-b border-slate-100">
-            <button
-              onClick={onClose}
-              className="p-1 -ml-1 text-slate-400 hover:text-slate-600 transition-colors"
-              aria-label="Закрыть настройки"
-            >
-              <ChevronLeft size={22} />
-            </button>
-            <span className="text-sm font-black text-slate-800 uppercase tracking-widest font-machine">Настройки</span>
-          </div>
-
-          {/* Десктопный заголовок */}
-          <div className="hidden md:block px-8 pt-10 pb-6 space-y-1">
-            <h3 className="text-2xl font-black font-machine text-slate-900 leading-tight">Настройки</h3>
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Конфигурация системы</p>
-          </div>
-
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Навигация */}
-          <nav className="flex flex-row md:flex-col gap-1 px-3 md:px-4 py-2 md:py-0 md:pb-4 overflow-x-auto md:overflow-x-visible">
-            {NAV_ITEMS.map((item) => (
+          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-100 p-3 md:w-52 md:flex-col md:overflow-visible md:border-b-0 md:border-r">
+            {navItems.map((n) => {
+              const active = tab === n.id;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => setTab(n.id)}
+                  className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-bold transition ${active ? 'bg-[#3C50B4] text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                >
+                  <n.icon size={17} /> {n.label}
+                </button>
+              );
+            })}
+            {onLogout && (
               <button
-                key={item.id}
-                className={`flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-3.5 rounded-xl md:rounded-2xl text-[10px] md:text-[11px] font-black uppercase tracking-widest transition-all shrink-0 md:w-full
-                  ${item.id === 'profile'
-                    ? 'bg-[#3C50B4] text-white shadow-lg shadow-blue-200'
-                    : 'text-slate-400 hover:bg-white hover:text-[#3C50B4]'
-                  }`}
+                onClick={onLogout}
+                className="mt-auto hidden items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-bold text-red-500 transition hover:bg-red-50 md:flex"
               >
-                <item.icon size={15} />
-                <span className="md:inline">{item.label}</span>
+                <LogOut size={17} /> Выйти
               </button>
-            ))}
+            )}
           </nav>
 
-          {/* Кнопка выхода — только на десктопе */}
-          <button className="hidden md:flex items-center gap-3 mx-4 mb-6 mt-auto px-5 py-3.5 text-red-400 hover:text-red-500 text-xs font-black uppercase tracking-widest transition-all border border-transparent hover:border-red-100 rounded-2xl">
-            <LogOut size={16} />
-            Завершить сессию
-          </button>
-        </div>
+          {/* Контент */}
+          <div className="flex-1 space-y-5 overflow-y-auto p-5 custom-scrollbar">
+            {tab === 'profile' && (
+              <>
+                <Field label="Email">
+                  <input value={currentUser?.email ?? ''} disabled className={`${inputCls} bg-slate-50 text-slate-400`} />
+                </Field>
+                <Field label="Отображаемое имя">
+                  <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Ваше имя" />
+                </Field>
+                <button onClick={saveProfile} disabled={busy} className={btnPrimary}>
+                  {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Сохранить имя
+                </button>
+              </>
+            )}
 
-        {/* ── Правая часть (Контент) ───────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col">
+            {tab === 'security' && (
+              <>
+                <Field label="Текущий пароль">
+                  <input type="password" value={pwd.current} onChange={(e) => setPwd((p) => ({ ...p, current: e.target.value }))} className={inputCls} autoComplete="current-password" />
+                </Field>
+                <Field label="Новый пароль" hint="Минимум 6 символов">
+                  <input type="password" value={pwd.next} onChange={(e) => setPwd((p) => ({ ...p, next: e.target.value }))} className={inputCls} autoComplete="new-password" />
+                </Field>
+                <Field label="Повторите новый пароль">
+                  <input type="password" value={pwd.confirm} onChange={(e) => setPwd((p) => ({ ...p, confirm: e.target.value }))} className={inputCls} autoComplete="new-password" />
+                </Field>
+                <button onClick={savePassword} disabled={busy} className={btnPrimary}>
+                  {busy ? <Loader2 size={16} className="animate-spin" /> : <Shield size={16} />} Сменить пароль
+                </button>
+              </>
+            )}
 
-          {/* Заголовок секции */}
-          <div className="flex justify-between items-start px-5 md:px-12 pt-5 md:pt-10 pb-4 md:pb-8">
-            <div>
-              <h4 className="text-base md:text-2xl font-black text-slate-800 font-machine">Личные данные</h4>
-              <p className="text-slate-400 text-xs md:text-sm mt-0.5 font-medium">Управляйте тем, как вас видят коллеги</p>
-            </div>
-            {/* Кнопка закрыть — только на десктопе */}
-            <button
-              onClick={onClose}
-              className="hidden md:flex p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-all text-slate-400 hover:rotate-90"
-            >
-              <X size={20} />
-            </button>
-          </div>
+            {tab === 'agency' && isAdmin && (
+              <>
+                <p className="text-sm text-slate-500">Имя и сайт агентства. На сайт ведёт логотип-«молния» в боковой панели.</p>
+                <Field label="Название агентства">
+                  <input value={agency.agencyName} onChange={(e) => setAgency((a) => ({ ...a, agencyName: e.target.value }))} className={inputCls} placeholder="Adena Digital" />
+                </Field>
+                <Field label="Ссылка на сайт" hint="Например: https://adena.by">
+                  <input value={agency.agencySiteUrl} onChange={(e) => setAgency((a) => ({ ...a, agencySiteUrl: e.target.value }))} className={inputCls} placeholder="https://adena.by" />
+                </Field>
+                <button onClick={saveAgency} disabled={busy} className={btnPrimary}>
+                  {busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Сохранить
+                </button>
+              </>
+            )}
 
-          <div className="px-5 md:px-12 pb-6 md:pb-12 space-y-6 md:space-y-10 max-w-2xl">
-
-            {/* Аватар */}
-            <div className="flex items-center gap-4 md:gap-8 p-4 md:p-8 bg-violet-50/50 rounded-2xl md:rounded-[32px] border border-violet-100 relative overflow-hidden">
-              <div className="w-14 h-14 md:w-24 md:h-24 bg-[#FFD700] rounded-2xl md:rounded-[24px] flex items-center justify-center text-xl md:text-3xl font-black text-[#3C50B4] shadow-xl border-4 border-white shrink-0">
-                AA
-              </div>
-              <div className="space-y-2">
-                <h5 className="font-black text-slate-800 text-xs md:text-sm uppercase tracking-tight">Фото профиля</h5>
-                <div className="flex gap-2 md:gap-3">
-                  <button className="bg-[#3C50B4] text-white px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#2e3e91] transition-all">
-                    Загрузить
-                  </button>
-                  <button className="bg-white text-slate-400 px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-slate-100 hover:text-red-400 transition-all">
-                    Удалить
-                  </button>
-                </div>
-              </div>
-              <User size={80} className="absolute -right-4 -bottom-4 text-violet-200/20 hidden md:block" />
-            </div>
-
-            {/* Поля */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Отображаемое имя</label>
-                <input
-                  type="text"
-                  defaultValue="Adena Admin"
-                  className="w-full bg-slate-50 border-2 border-transparent focus:border-[#3C50B4]/10 rounded-xl md:rounded-2xl px-4 md:px-6 py-2.5 md:py-4 text-sm font-bold text-slate-700 focus:ring-0 transition-all outline-none"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Должность</label>
-                <input
-                  type="text"
-                  defaultValue="Producer"
-                  className="w-full bg-slate-50 border-2 border-transparent focus:border-[#3C50B4]/10 rounded-xl md:rounded-2xl px-4 md:px-6 py-2.5 md:py-4 text-sm font-bold text-slate-700 focus:ring-0 transition-all outline-none"
-                />
-              </div>
-              <div className="space-y-1.5 col-span-1 md:col-span-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Email для уведомлений</label>
-                <input
-                  type="email"
-                  defaultValue="admin@adena.agency"
-                  className="w-full bg-slate-50 border-2 border-transparent focus:border-[#3C50B4]/10 rounded-xl md:rounded-2xl px-4 md:px-6 py-2.5 md:py-4 text-sm font-bold text-slate-700 focus:ring-0 transition-all outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Публичный режим */}
-            <div>
-              <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Приватность и доступ</h5>
-              <div className="flex items-center justify-between p-4 md:p-6 bg-blue-50/50 rounded-2xl md:rounded-3xl border border-blue-100 hover:bg-blue-50 transition-colors">
-                <div className="flex items-center gap-3 md:gap-4">
-                  <div className="w-8 h-8 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center text-blue-500 shadow-sm shrink-0">
-                    <Globe size={16} />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-black uppercase tracking-tight text-slate-700">Публичный режим</p>
-                    <p className="text-[10px] text-slate-400 font-medium">Клиенты смогут видеть ваш профиль</p>
-                  </div>
-                </div>
-                <div className="w-10 md:w-12 h-5 md:h-6 bg-[#3C50B4] rounded-full relative cursor-pointer shrink-0">
-                  <div className="absolute right-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-md" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Футер с кнопками */}
-          <div className="mt-auto px-5 md:px-12 py-4 md:py-8 border-t border-slate-100 flex flex-col md:flex-row gap-2 md:gap-4">
-            <button className="bg-[#3C50B4] text-white px-6 md:px-10 py-3 md:py-5 rounded-xl md:rounded-[20px] font-black text-[11px] uppercase tracking-[0.2em] shadow-xl shadow-blue-200 hover:-translate-y-0.5 transition-all active:scale-95 w-full md:w-auto">
-              Сохранить изменения
-            </button>
-            <button onClick={onClose} className="px-6 md:px-10 py-3 md:py-5 bg-slate-100 text-slate-400 rounded-xl md:rounded-[20px] font-black text-[11px] uppercase tracking-[0.2em] hover:bg-slate-200 transition-all w-full md:w-auto">
-              Отмена
-            </button>
-            {/* Выход — только на мобилке */}
-            <button className="md:hidden flex items-center justify-center gap-2 px-6 py-3 text-red-400 border border-red-100 rounded-xl font-black text-[11px] uppercase tracking-widest">
-              <LogOut size={15} />
-              Завершить сессию
-            </button>
+            {/* Мобильный выход */}
+            {onLogout && (
+              <button onClick={onLogout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-bold text-red-500 md:hidden">
+                <LogOut size={16} /> Выйти из аккаунта
+              </button>
+            )}
           </div>
         </div>
       </div>

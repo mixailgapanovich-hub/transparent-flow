@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, BookOpen, LayoutGrid, Bell, Info, Send } from 'lucide-react';
 import { api } from '../../api/client';
 import KanbanBoard from '../KanbanBoard';
@@ -59,6 +59,29 @@ export default function ClientApp({ token }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [token, notifOpen]);
+
+  // Реал-тайм опросом (~10с): доска + бейдж. Пауза при перетаскивании,
+  // открытой карточке и на скрытой вкладке — чтобы не сбивать работу клиента.
+  const pollRef = useRef({});
+  useEffect(() => { pollRef.current = { activeId, selectedTaskId }; });
+  useEffect(() => {
+    const id = setInterval(async () => {
+      if (document.hidden) return;
+      api.client.notifications(token, { limit: 1 })
+        .then((r) => setUnreadCount(r.counts?.total ?? 0))
+        .catch(() => {});
+      const st = pollRef.current;
+      if (st.activeId || st.selectedTaskId) return;
+      try {
+        const d = await api.client.get(token);
+        const now = pollRef.current;
+        if (now.activeId || now.selectedTaskId) return;
+        setData(d);
+        setTasks(d.tasks ?? []);
+      } catch { /* тихо */ }
+    }, 10000);
+    return () => clearInterval(id);
+  }, [token]);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
   const replaceTask = useCallback((updated) => {
