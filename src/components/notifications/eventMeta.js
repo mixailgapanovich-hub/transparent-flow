@@ -8,6 +8,7 @@ export const CATEGORY_TABS = [
   { id: 'acts', label: 'Акты' },
   { id: 'content', label: 'Контент' },
   { id: 'inbox', label: 'Предложения и вопросы' },
+  { id: 'movement', label: 'Движение' },
 ];
 
 const DOTS = {

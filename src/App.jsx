@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, LogOut } from 'lucide-react';
+import { Bell, LogOut, Plus, Link2, Info, Send } from 'lucide-react';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import NotificationsPage from './components/notifications/NotificationsPage';
 import Sidebar from './components/Sidebar';
 import KanbanBoard from './components/KanbanBoard';
-import RightPanel from './components/RightPanel';
 import TaskModal from './components/task-modal/TaskModal';
 import GuestUploadPage from './components/GuestUploadPage';
 import ClientApp from './components/client/ClientApp';
 import LoginScreen from './components/LoginScreen';
 import { api } from './api/client';
-import { PROJECT_BADGE_STYLES } from './theme/taskStyles';
 import { useToastState, ToastContainer } from './components/Toast';
 import { canTransitionStatus } from './utils/taskWorkflow';
 import ProjectsView from './components/ProjectsView';
@@ -18,6 +16,14 @@ import KnowledgeBase from './components/KnowledgeBase';
 import SettingsModal from './components/SettingsModal';
 import BottomNav from './components/BottomNav';
 import ManagementView from './components/management/ManagementView';
+import ProjectInfoModal from './components/project-info/ProjectInfoModal';
+import DashboardView from './components/DashboardView';
+import ClientRequestsModal from './components/ClientRequestsModal';
+
+const PROJECT_STATUS_RU = { active: 'Активный', paused: 'Пауза', waiting: 'Ждёт', completed: 'Завершён' };
+
+// Временный ID черновика новой задачи — никогда не попадёт в БД.
+const DRAFT_ID = '__new_task_draft__';
 
 export default function App() {
   // null = не проверяли, undefined = не залогинен, объект = авторизованный юзер
@@ -30,9 +36,13 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [team, setTeam] = useState([]);
   const [botUsername, setBotUsername] = useState(null);
+  // Глобальные настройки агентства (имя + ссылка на сайт для «молнии»).
+  const [settings, setSettings] = useState({ agencyName: 'Adena Digital', agencySiteUrl: 'https://adena.by' });
   const [activeId, setActiveId] = useState(null);
   // pendingByTaskId: Map<id, lastRequestedStatus> — защита от race в optimistic updates
   const pendingByTaskId = useRef(new Map());
+  // Зеркало состояния для интервала опроса (чтобы не пересоздавать таймер на каждый чих).
+  const pollStateRef = useRef({});
   const { toasts, showToast } = useToastState();
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -44,6 +54,10 @@ export default function App() {
   const [projectFilter, setProjectFilter] = useState(null);
   // Намерение «отправить на согласование» из drag-and-drop: открыть задачу с раскрытой формой.
   const [reviewIntentId, setReviewIntentId] = useState(null);
+  // «О проекте»: открытый проект (объект) для панели описания/контактов/доступов.
+  const [infoProject, setInfoProject] = useState(null);
+  // «Ссылки клиенту»: панель задач, ожидающих материалов.
+  const [requestsOpen, setRequestsOpen] = useState(false);
 
   // 1) Проверка сессии при загрузке: тянем /me. 401 → отрисуем LoginScreen.
   const [authChecked, setAuthChecked] = useState(false);
@@ -87,6 +101,9 @@ export default function App() {
     api.botInfo()
       .then((info) => { if (!cancelled) setBotUsername(info?.configured ? info.botUsername : null); })
       .catch(() => {});
+    api.getSettings()
+      .then((s) => { if (!cancelled && s) setSettings(s); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [currentUser]);
 
@@ -102,6 +119,29 @@ export default function App() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [currentUser, isNotificationsPageOpen, isNotificationsOpen]);
+
+  // Реал-тайм опросом (~10с): бейдж уведомлений + доска. Чтобы не сбивать работу,
+  // обновление задач пропускается во время перетаскивания, открытой карточки,
+  // наличия черновика, незавершённых optimistic-переходов и на скрытой вкладке.
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    const id = setInterval(async () => {
+      if (document.hidden) return;
+      api.notifications.unreadCounts()
+        .then((c) => setUnreadCount(c.total ?? 0))
+        .catch(() => {});
+      const st = pollStateRef.current;
+      if (st.activeId || st.selectedTaskId || pendingByTaskId.current.size > 0) return;
+      try {
+        const data = await api.listTasks();
+        const now = pollStateRef.current;
+        if (now.activeId || now.selectedTaskId || pendingByTaskId.current.size > 0) return;
+        // Не затираем несохранённый черновик новой задачи.
+        setTasks((prev) => (prev.some((t) => t.id === DRAFT_ID) ? prev : data));
+      } catch { /* тихо — следующий тик повторит */ }
+    }, 10000);
+    return () => clearInterval(id);
+  }, [currentUser]);
 
   // Открыть клиентский вид проекта в новой вкладке (PM-превью «как видит клиент»).
   // Если токена ещё нет или доступ отозван — генерируем свежую ссылку.
@@ -138,9 +178,6 @@ export default function App() {
     setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
   }, []);
 
-  // Временный ID черновика — никогда не попадёт в БД
-  const DRAFT_ID = '__new_task_draft__';
-
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
   const openTask = (taskId) => {
@@ -154,11 +191,14 @@ export default function App() {
     setReviewIntentId(null);
   }, []);
 
-  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save
-  const createTask = useCallback(() => {
+  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save.
+  // projectSlug задаёт проект новой задачи (из текущего фильтра/проекта); если не
+  // передан — оставляем выбор в модалке (по умолчанию первый проект).
+  const createTask = useCallback((projectSlug) => {
+    const slug = (typeof projectSlug === 'string' && projectSlug) || null;
     const draft = {
       id: DRAFT_ID,
-      projectId: 'proj-eco',
+      projectId: slug,
       title: '',
       status: 'backlog',
       tag: 'Обычная',
@@ -270,9 +310,9 @@ export default function App() {
     try {
       const updated = await api.acceptContent(taskId);
       replaceTask(updated);
-      showToast('success', 'Контент принят. Клиенту отправлено подтверждающее письмо.');
+      showToast('success', 'Материалы приняты — задача вернулась в работу.');
     } catch (err) {
-      showToast('error', 'Не удалось принять контент: ' + (err.detail || err.message));
+      showToast('error', 'Не удалось принять материалы: ' + (err.detail || err.message));
     }
   };
 
@@ -320,6 +360,18 @@ export default function App() {
       showToast('error', err.detail || err.message);
     }
   };
+
+  // Раскладка майндмапа (PM-аудитория) — стабильные ссылки, чтобы не перезагружать граф.
+  const loadTaskLayout = useCallback(() => api.getTaskLayout(), []);
+  const saveTaskLayout = useCallback((positions) => api.saveTaskLayout(positions), []);
+
+  // Текущий проект — только когда открыт конкретный проект на вкладке «Задачи».
+  // На дашборде единого проекта нет (там сводка по всем), поэтому «О проекте» там не показываем.
+  const currentProjectSlug = activeTab === 'tasks' ? projectFilter : null;
+  const currentProject = currentProjectSlug ? (projects.find((p) => p.slug === currentProjectSlug) ?? null) : null;
+
+  // Зеркалим состояние для интервала опроса (читается внутри setInterval без пересоздания).
+  useEffect(() => { pollStateRef.current = { activeId, selectedTaskId }; });
 
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
   // Здесь только обновляем локальный кэш задачи свежим DTO.
@@ -382,12 +434,17 @@ export default function App() {
     // Главный контейнер на весь экран без прокрутки самого окна
     <div className="flex h-screen w-screen bg-white text-slate-800 font-montserrat overflow-hidden">
       
-      {/* 1. Левый сайдбар — теперь он просто занимает свои 96 пикселей, ни на что не наступая */}
+      {/* 1. Левый сайдбар — навигация + последние проекты + настройки */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={(tab) => { setActiveTab(tab); setProjectFilter(null); }}
         onSettingsClick={() => setIsSettingsOpen(true)}
         isAdmin={isAdmin}
+        projects={projects}
+        onOpenProject={(slug) => { setProjectFilter(slug); setActiveTab('tasks'); }}
+        currentSlug={currentProjectSlug}
+        agencyName={settings.agencyName}
+        agencySiteUrl={settings.agencySiteUrl}
       />
 
       {/* 2. Основной контент (Центр + Право) */}
@@ -398,11 +455,51 @@ export default function App() {
           <div className="flex items-center gap-2 md:gap-4">
             <h1 className="text-base md:text-2xl font-black text-slate-900 font-machine tracking-tighter">Прозрачный поток</h1>
             <div className="hidden md:block px-3 py-1 bg-[#3C50B4]/5 text-[#3C50B4] text-[10px] font-black rounded-lg uppercase tracking-widest border border-[#3C50B4]/10">
-              Agency Mode
+              {settings.agencyName}
             </div>
           </div>
 
           <div className="flex items-center gap-3 md:gap-6">
+            {/* Действия проекта — иконками (бывшая правая панель) */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => createTask(currentProjectSlug)}
+                title="Новая задача"
+                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                aria-label="Новая задача"
+              >
+                <Plus size={20} />
+              </button>
+              <button
+                onClick={() => setRequestsOpen(true)}
+                title="Ссылки клиенту"
+                className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                aria-label="Ссылки клиенту"
+              >
+                <Link2 size={20} />
+              </button>
+              {currentProject && (
+                <button
+                  onClick={() => setInfoProject(currentProject)}
+                  title="О проекте"
+                  className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
+                  aria-label="О проекте"
+                >
+                  <Info size={20} />
+                </button>
+              )}
+              {botUsername && (
+                <button
+                  onClick={() => window.open(`https://t.me/${botUsername}`, '_blank', 'noopener')}
+                  title="Чат в Telegram"
+                  className="p-2 text-slate-400 hover:text-[#229ED9] transition-colors"
+                  aria-label="Чат в Telegram"
+                >
+                  <Send size={20} />
+                </button>
+              )}
+            </div>
+
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen((v) => !v)}
@@ -455,13 +552,13 @@ export default function App() {
         <div className="flex-1 flex overflow-hidden">
           
           {/* КАНБАН-ЗОНА: Выделяем цветом и отступами */}
-          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-6 overflow-hidden flex flex-col">
+          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-5 overflow-hidden flex flex-col">
 
             {/* Оболочка самого канбана — "белая доска" на сером фоне */}
             <div className="flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
 
-              {/* Внутренний скролл только для доски */}
-              <div className="flex-1 overflow-auto p-3 md:p-8 pb-20 md:pb-8 custom-scrollbar">
+              {/* Внутренний скролл только для доски — отступы унифицированы по периметру */}
+              <div className="flex-1 overflow-auto p-3 md:p-6 pb-20 md:pb-6 custom-scrollbar">
   {(activeTab === 'dashboard' || activeTab === 'tasks') && tasksLoading ? (
     <div className="flex items-center justify-center h-full text-slate-400 font-machine text-sm">
       Загружаем задачи...
@@ -475,39 +572,50 @@ export default function App() {
       </div>
     </div>
   ) : activeTab === 'dashboard' ? (
-    <KanbanBoard
-      tasks={tasks.filter(t => !t.projectId || t.projectId === 'proj-eco')}
-      setTasks={setTasks}
-      onChangeStatus={updateTaskStatus}
-      onSubmitForReview={openSubmitForReview}
-      onAddDependency={addDependency}
-      onRemoveDependency={removeDependency}
-      onTaskClick={openTask}
-      onCreateTask={createTask}
-      isAdmin={isAdmin}
-      activeId={activeId}
-      setActiveId={setActiveId}
+    <DashboardView
+      tasks={tasks}
+      projects={projects}
+      onOpenProject={(slug) => { setProjectFilter(slug); setActiveTab('tasks'); }}
+      onOpenTask={openTask}
     />
   ) : activeTab === 'tasks' ? (
-    <KanbanBoard
-      tasks={projectFilter ? tasks.filter(t => t.projectId === projectFilter) : tasks}
-      setTasks={setTasks}
-      onChangeStatus={updateTaskStatus}
-      onSubmitForReview={openSubmitForReview}
-      onAddDependency={addDependency}
-      onRemoveDependency={removeDependency}
-      onTaskClick={openTask}
-      onCreateTask={createTask}
-      isAdmin={isAdmin}
-      activeId={activeId}
-      setActiveId={setActiveId}
-      showProjectBadge
-      showColumnFilter
-      projectFilterLabel={projectFilter ? (PROJECT_BADGE_STYLES[projectFilter]?.label ?? projectFilter) : null}
-      onClearProjectFilter={() => setProjectFilter(null)}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      {currentProject && (
+        <div className="mb-4 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#3C50B4]/15 bg-[#3C50B4]/[0.04] px-5 py-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#3C50B4]/60">Проект</p>
+            <h2 className="text-lg font-black text-slate-900 leading-tight">{currentProject.name}</h2>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500">{PROJECT_STATUS_RU[currentProject.status] ?? currentProject.status}</span>
+            <span className="rounded-lg bg-[#3C50B4]/5 px-2.5 py-1 text-sm font-black text-[#3C50B4]">{currentProject.progress}%</span>
+            <button onClick={() => setInfoProject(currentProject)} className="text-xs font-bold text-[#3C50B4] hover:underline">О проекте</button>
+            <button onClick={() => setProjectFilter(null)} className="text-xs font-bold text-slate-400 hover:text-slate-600">Все проекты</button>
+          </div>
+        </div>
+      )}
+      <div className="min-h-0 flex-1">
+        <KanbanBoard
+          tasks={projectFilter ? tasks.filter(t => t.projectId === projectFilter) : tasks}
+          setTasks={setTasks}
+          onChangeStatus={updateTaskStatus}
+          onSubmitForReview={openSubmitForReview}
+          onAddDependency={addDependency}
+          onRemoveDependency={removeDependency}
+          onLoadLayout={loadTaskLayout}
+          onSaveLayout={saveTaskLayout}
+          onTaskClick={openTask}
+          onCreateTask={() => createTask(projectFilter)}
+          isAdmin={isAdmin}
+          activeId={activeId}
+          setActiveId={setActiveId}
+          showProjectBadge
+          showColumnFilter
+        />
+      </div>
+    </div>
   ) : activeTab === 'projects' ? (
-    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} onClientView={openClientView} />
+    <ProjectsView projects={projects} onOpenProject={(id) => { setProjectFilter(id); setActiveTab('tasks'); }} onClientView={openClientView} onProjectInfo={(p) => setInfoProject(p)} />
   ) : activeTab === 'kb' ? (
     <KnowledgeBase />
   ) : activeTab === 'management' && isAdmin ? (
@@ -520,15 +628,14 @@ export default function App() {
 </div>
             </div>
           </main>
-
-          {/* Правая панель (Utility Panel) */}
-          <RightPanel onCreateTask={createTask} onOpenKb={() => setActiveTab('kb')} />
         </div>
       </div>
 
       <TaskModal
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
+        isNew={selectedTaskId === DRAFT_ID}
+        projects={projects}
         isSaving={isSavingTask}
         canDelete={canDeleteTask(selectedTask) && selectedTaskId !== DRAFT_ID}
         onDelete={async () => {
@@ -589,10 +696,11 @@ export default function App() {
         onSave={async (patch) => {
           // Черновик — создаём задачу через POST
           if (selectedTaskId === DRAFT_ID) {
+            const projectSlug = patch.projectId || selectedTask?.projectId || projects[0]?.slug || 'proj-eco';
             setIsSavingTask(true);
             try {
               const created = await api.createTask({
-                projectSlug: 'proj-eco',
+                projectSlug,
                 title: patch.title || 'Новая задача',
                 description: patch.description ?? '',
                 tag: patch.tag ?? 'Обычная',
@@ -636,10 +744,36 @@ export default function App() {
         />
       )}
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+      {infoProject && (
+        <ProjectInfoModal
+          mode="pm"
+          projectId={infoProject.id}
+          projectName={infoProject.name}
+          onClose={() => setInfoProject(null)}
+        />
+      )}
+
+      {requestsOpen && (
+        <ClientRequestsModal
+          tasks={tasks}
+          onOpenTask={(id) => { setRequestsOpen(false); openTask(id); }}
+          onClose={() => setRequestsOpen(false)}
+        />
+      )}
+
+      {isSettingsOpen && (
+        <SettingsModal
+          isOpen
+          onClose={() => setIsSettingsOpen(false)}
+          currentUser={currentUser}
+          isAdmin={isAdmin}
+          settings={settings}
+          onToast={showToast}
+          onProfileUpdated={(user) => setCurrentUser(user)}
+          onSettingsUpdated={(s) => setSettings(s)}
+          onLogout={handleLogout}
+        />
+      )}
 
       <ToastContainer toasts={toasts} />
 

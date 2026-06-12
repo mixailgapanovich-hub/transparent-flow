@@ -74,3 +74,31 @@ export async function getUserById(id) {
   );
   return res.rows[0] ?? null;
 }
+
+/** Самообновление имени профиля (текущий пользователь). */
+export async function updateOwnProfile(userId, { name } = {}) {
+  if (!name?.trim()) throw new HttpError(400, 'Имя не может быть пустым');
+  const res = await pool.query(
+    `UPDATE users SET name = $1 WHERE id = $2 AND is_active = true
+     RETURNING id, name, email, role`,
+    [name.trim(), userId],
+  );
+  if (res.rowCount === 0) throw new HttpError(404, 'Пользователь не найден');
+  return res.rows[0];
+}
+
+/** Смена собственного пароля: проверяем текущий, затем ставим новый. */
+export async function changeOwnPassword(userId, currentPassword, newPassword) {
+  if (!currentPassword || !newPassword) throw new HttpError(400, 'Укажите текущий и новый пароль');
+  if (String(newPassword).length < 6) throw new HttpError(400, 'Новый пароль слишком короткий (мин. 6)');
+
+  const res = await pool.query('SELECT password_hash FROM users WHERE id = $1 AND is_active = true', [userId]);
+  if (res.rowCount === 0) throw new HttpError(404, 'Пользователь не найден');
+
+  const ok = await bcrypt.compare(currentPassword, res.rows[0].password_hash);
+  if (!ok) throw new HttpError(400, 'Текущий пароль неверен');
+
+  const hash = await hashPassword(newPassword);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
+  return { ok: true };
+}

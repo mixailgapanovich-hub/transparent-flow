@@ -9,10 +9,13 @@ import { HttpError } from './taskService.js';
 export const CATEGORY_EVENTS = {
   comments:   ['comment_added'],
   approvals:  ['review_requested', 'review_approved', 'review_changes_requested'],
-  escalation: ['notification_sent', 'notification_failed', 'cascade_exhausted', 'status_change'],
+  escalation: ['notification_sent', 'notification_failed', 'cascade_exhausted'],
   acts:       ['verification_email_sent', 'verification_email_failed', 'content_accepted'],
   content:    ['client_upload'],
   inbox:      ['task_suggested', 'client_question'],
+  // «Движение» — перетаскивания/смена статуса задач. Намеренно НЕ попадает во
+  // вкладку «Все» и не считается непрочитанным (см. queryFeed/unreadCounts).
+  movement:   ['status_change'],
 };
 
 const ALL_PM_EVENTS = [...new Set(Object.values(CATEGORY_EVENTS).flat())];
@@ -49,7 +52,6 @@ async function queryFeed(subject, opts) {
     unread = false,
     limit = 30,
     offset = 0,
-    statusChangeWaitingOnly = false,
     commentPmOnly = false,
   } = opts;
 
@@ -68,9 +70,10 @@ async function queryFeed(subject, opts) {
     conds.push(`COALESCE(t.project_id, e.project_id) = $${params.length}`);
   }
 
-  // status_change шумный — для эскалации берём только переход в waiting.
-  if (statusChangeWaitingOnly) {
-    conds.push(`(e.event_type <> 'status_change' OR e.payload->>'to' = 'waiting')`);
+  // «Движение» (status_change) не засоряет общий список «Все» — оно доступно
+  // только в своей вкладке (category='movement').
+  if (!category) {
+    conds.push(`e.event_type <> 'status_change'`);
   }
   // Клиенту показываем только ответы PM, а не его собственные комментарии.
   if (commentPmOnly) {
@@ -104,11 +107,11 @@ async function queryFeed(subject, opts) {
 }
 
 /** Счётчик непрочитанного по категориям — для бейджей на вкладках/колокольчике. */
-async function unreadCounts(subject, { projectId = null, eventTypes, statusChangeWaitingOnly = false, commentPmOnly = false }) {
+async function unreadCounts(subject, { projectId = null, eventTypes, commentPmOnly = false }) {
   const params = [subject.type, subject.id, eventTypes];
-  const conds = [`e.event_type = ANY($3)`, `nr.event_id IS NULL`];
+  // status_change («движение») не считается непрочитанным — не нагоняет бейдж.
+  const conds = [`e.event_type = ANY($3)`, `nr.event_id IS NULL`, `e.event_type <> 'status_change'`];
   if (projectId) { params.push(projectId); conds.push(`COALESCE(t.project_id, e.project_id) = $${params.length}`); }
-  if (statusChangeWaitingOnly) conds.push(`(e.event_type <> 'status_change' OR e.payload->>'to' = 'waiting')`);
   if (commentPmOnly) conds.push(`(e.event_type <> 'comment_added' OR e.payload->>'authorType' = 'pm')`);
 
   const sql = `
@@ -135,12 +138,11 @@ async function unreadCounts(subject, { projectId = null, eventTypes, statusChang
 export function listForPm(userId, { category, unread, limit, offset } = {}) {
   return queryFeed({ type: 'user', id: userId }, {
     eventTypes: ALL_PM_EVENTS, category, unread, limit, offset,
-    statusChangeWaitingOnly: true,
   });
 }
 export function pmUnreadCounts(userId) {
   return unreadCounts({ type: 'user', id: userId }, {
-    eventTypes: ALL_PM_EVENTS, statusChangeWaitingOnly: true,
+    eventTypes: ALL_PM_EVENTS,
   });
 }
 

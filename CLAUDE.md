@@ -438,6 +438,34 @@ The bell dropdown for `role=admin` has four buttons ("Тик сейчас", "+3 
 - **`is_internal` toggle** — checkbox in TaskModal aside; `taskService.updateTaskFields` maps `isInternal` → `is_internal`, `createTask` accepts it, DTO exposes `isInternal`. Client cabinet already hides internal tasks (`excludeInternal`).
 - **Dependency editor** — `taskService.addDependency`/`removeDependency` (+ routes); cycle guard rejects with 409 (traverses `task_dependencies` from `dependsOnId` looking for `taskId`). UI in `TasksMindMapView` (`editable` prop): `onConnect` adds, `onEdgesDelete` removes; a `nonce` re-key discards ReactFlow's optimistic edge so the graph always reflects the server.
 
+### Polish iterations (post-foundation, branch `feat/polish-1`, migrations 008–012)
+Серия полировочных итераций по большому пользовательскому аудиту. Все на одной ветке, мержатся одним PR.
+
+**Новые миграции:**
+- `008_task_layout.sql` — `task_layout(task_id, audience 'pm'|'client', x, y, PK(task_id,audience))`: сохранённые позиции узлов майндмапа, **отдельно для PM и клиента**.
+- `009_project_info.sql` — `project_info(project_id PK, description, site_url, drive_url, contacts JSONB, credentials JSONB)`: панель «О проекте».
+- `010_task_weight.sql` — `tasks.weight INT (1–10, nullable)`: вес задачи для готовности по весу.
+- `011_telegram_recipients.sql` — `project_telegram_recipients` (несколько Telegram-чатов на проект) + `project_telegram_onboarding` (одноразовые токены, ведущие на проект).
+- `012_app_settings.sql` — `app_settings(key,value)`: имя агентства + ссылка на сайт (дефолт «Adena Digital» / adena.by).
+
+**Итерация 1 — клиентский полиш:** убрана «Лента»; клиент может перетаскивать карточки внутри своей колонки (`reorderable`, межколоночный перенос «отскакивает»); поиск по колонке (лупа в шапке колонки); `status_change` вынесен в категорию `movement` (не засоряет «Все» в фиде).
+
+**Итерация 2 — майндмап:** контролируемый граф ReactFlow с перетаскиванием узлов; кнопка «Упорядочить» (авто-раскладка); сохранение позиций на аудиторию (`layoutService.js`, `task_layout`, эндпоинты `/api/tasks/:id/layout` PM и `/api/client/:token/layout`).
+
+**Итерация 3 — «О проекте»:** `projectInfoService.js` + `ProjectInfoModal.jsx` (режимы pm/client). Описание/сайт/диск/контакты/доступы; доступы с флагом `visibleToClient` (клиенту отдаются только видимые, флаг вырезается). PM: GET/PUT `/api/projects/:id/info`; клиент: GET `/api/client/:token/info` (`forClient`).
+
+**Итерация 4 — PM-ядро:** `DashboardView.jsx` (главная-сводка: карточки-метрики + «Требует вашего внимания» **по колонкам** uploaded/review/waiting/overdue; «Общая готовность» убрана как бессмысленная для агентства); плашка проекта на вкладке «Задачи»; `ClientRequestsModal.jsx` («Ссылки клиенту» — задачи `waiting` с активной magic-ссылкой); приёмка контента → `in-progress` (не авто-`done`), reopen из `done`; **готовность по весу** задач (`projectService` SUM по `weight`, плашка «вес?» на карточке только для PM).
+
+**Итерация 5 — Telegram (несколько получателей):** `telegramRecipientsService.js`. Бот `/start <token>` понимает project-токен (добавляет чат в `project_telegram_recipients`) и старый client-токен (одна привязка) — совместимость. Каскад шлёт **всем** получателям проекта (`resolveProjectChatIds` = recipients ∪ легаси `clients.telegram_chat_id`). Self-serve привязка из кабинета клиента: `TelegramConnectModal.jsx` (deep-link + QR через `qrcode.react` + список/удаление получателей, опрос привязки). Эндпоинты `/api/client/:token/telegram/{recipients|onboarding}` (GET/POST/DELETE). Бот: **@flow_adena_bot**, токен в `api/.env`.
+
+**Итерация 6 — редизайн:** расширенный левый `Sidebar` (навигация строками + «Последние проекты» 5 шт. + настройки; логотип-«молния» → ссылка на сайт агентства); **правая панель убрана** → доска на всю ширину; действия (создать / ссылки клиенту / о проекте / Telegram) — иконками в шапке; колонки канбана тянутся на всю ширину (`flex-1`, горизонтальный скролл при нехватке); переключатели колонок — в верхней строке.
+
+**Итерация 7 — «доверие»:** реал-тайм опросом ~10с (доска + бейдж уведомлений у PM и клиента; пауза при перетаскивании/открытой карточке/скрытой вкладке — состояние читается через `pollStateRef`/`pollRef`); живые «Настройки» (`SettingsModal` переписан): имя профиля (`PATCH /api/auth/profile`), смена пароля (`POST /api/auth/change-password`, bcrypt-проверка текущего), настройки агентства для admin (`settingsService.js`, `/api/settings` GET всем / PUT admin); «молния» в сайдбаре ведёт на сайт агентства.
+
+**Безопасность (polish-9):** `helmet` (заголовки, скрыт `x-powered-by`, CSP off для JSON-API, CORP=cross-origin), `express-rate-limit` (30/15мин на `/api/auth/login` и `/api/auth/change-password`), `trust proxy = 1`. Аудит подтвердил: параметризованный SQL, скоупинг скачивания файлов (нет IDOR), UUID-имена загрузок + whitelist расширений, отсутствие XSS-стоков, 0 уязвимостей `npm audit`.
+
+**Профиль/пароль:** `authService.updateOwnProfile`/`changeOwnPassword`; auth-роуты `PATCH /api/auth/profile` и `POST /api/auth/change-password` (оба под `requireUser`). JWT stateless — смена пароля не инвалидирует старый токен до истечения TTL (приемлемо для прототипа).
+
 ### File storage (guest uploads)
 - Files go to `api/storage/<task_id>/<uuid>.<ext>` on local disk. The original filename is kept in `task_files.filename`; on disk we only store a UUID to defuse path-traversal and filename collisions.
 - `api/storage/.tmp/` is multer's staging area. The route handler re-creates it on every request (`mkdir recursive`) — survives someone wiping `storage/` while the server runs.

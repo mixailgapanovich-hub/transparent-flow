@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Check, ChevronLeft, CloudUpload, Download, FileUp, Link2, Loader2, MessageCircle, Quote, Send, ShieldCheck, Tag, Trash2, Undo2, Users, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, CloudUpload, Download, FileUp, Flame, FolderKanban, Link2, Loader2, MessageCircle, Quote, Send, ShieldCheck, Tag, Trash2, Undo2, Users, X } from 'lucide-react';
 import { COLUMNS } from '../../data/mockData';
 import { TASK_STATUS_BADGE, TASK_TAG_BADGE, TASK_STATUS_LABEL, UI_BUTTON_STYLES } from '../../theme/taskStyles';
 import { getAllowedStatuses } from '../../utils/taskWorkflow';
@@ -94,7 +94,7 @@ function ApprovalRoundCard({ round, fileHref }) {
   );
 }
 
-export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete, clientMode = false, onClientUpload, onSubmitForReview, onCancelReview, onUploadFiles, onApproveReview, onRequestChanges, clientToken = null, initialReviewOpen = false }) {
+export default function TaskModal({ task, team = [], botUsername = null, onClose, onSave, onRequestClient, onRequestTelegramLink, onSendComment, onAddAssignee, onAcceptContent, onOpenGuestView, isAdmin = false, isSaving = false, canDelete = false, onDelete, clientMode = false, onClientUpload, onSubmitForReview, onCancelReview, onUploadFiles, onApproveReview, onRequestChanges, clientToken = null, initialReviewOpen = false, isNew = false, projects = [] }) {
   const initialDraft = {
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -102,6 +102,8 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
     deadline: normalizeDeadline(task?.deadline),
     tag: task?.tag ?? 'Обычная',
     isInternal: task?.isInternal ?? false,
+    weight: task?.weight ?? '', // '' = вес не задан
+    projectId: task?.projectId ?? (isNew ? (projects[0]?.slug ?? '') : ''),
   };
 
   const [draft, setDraft] = useState({
@@ -168,7 +170,8 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
       draft.status !== (task.status ?? 'backlog') ||
       draft.deadline !== normalizeDeadline(task.deadline) ||
       draft.tag !== (task.tag ?? 'Обычная') ||
-      draft.isInternal !== (task.isInternal ?? false));
+      draft.isInternal !== (task.isInternal ?? false) ||
+      (draft.weight === '' ? null : draft.weight) !== (task.weight ?? null));
 
   const allowedStatuses = useMemo(
     () => getAllowedStatuses(task?.status ?? 'backlog', { isAdmin }),
@@ -207,6 +210,9 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
       tag: draft.tag,
       isImportant: draft.tag === 'Ключевая',
       isInternal: draft.isInternal,
+      weight: draft.weight === '' ? null : draft.weight,
+      // Проект задаём только при создании — у существующей задачи проект не меняем здесь.
+      ...(isNew ? { projectId: draft.projectId } : {}),
     });
   };
 
@@ -696,13 +702,13 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
               </div>
               {draft.status === 'client-uploaded' && (
                 <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-3 text-xs font-semibold text-teal-700">
-                  <p>Клиент загрузил материалы. Проверьте их и зафиксируйте приём.</p>
+                  <p>Клиент загрузил материалы. Примите их — задача вернётся в работу, дальше можно доработать или отправить на согласование.</p>
                   <button
                     type="button"
                     onClick={() => onAcceptContent?.()}
                     className="mt-2 w-full rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white transition hover:bg-teal-700"
                   >
-                    Принять контент (отправить акт клиенту)
+                    Принять материалы (в работу)
                   </button>
                 </div>
               )}
@@ -878,6 +884,26 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
 
           <aside className="md:col-span-3 p-4 md:p-6 border-t md:border-t-0 border-slate-100">
             <SectionTitle title="Метаданные" subtitle="Управление статусом и атрибутами" />
+
+            {/* Проект — выбираем только при создании задачи */}
+            {isNew && projects.length > 0 && (
+              <div className="mb-6">
+                <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+                  <FolderKanban size={14} />
+                  Проект
+                </label>
+                <select
+                  value={draft.projectId}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, projectId: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20"
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.slug}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Статус</label>
             <select
               value={draft.status}
@@ -915,17 +941,27 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
               <Tag size={14} />
               Приоритет
             </label>
-            <select
-              value={draft.tag}
-              onChange={(event) => setDraft((prev) => ({ ...prev, tag: event.target.value }))}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#3C50B4] focus:ring-2 focus:ring-[#3C50B4]/20"
-            >
-              {TAG_OPTIONS.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
+            <div className="grid grid-cols-3 gap-1.5">
+              {TAG_OPTIONS.map((tag) => {
+                const active = draft.tag === tag;
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setDraft((prev) => ({ ...prev, tag }))}
+                    className={`flex items-center justify-center gap-1 rounded-xl border px-2 py-2 text-xs font-bold transition ${
+                      active
+                        ? 'border-[#3C50B4] bg-[#3C50B4]/5 text-[#3C50B4]'
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                    }`}
+                  >
+                    {tag === 'Ключевая' && <Flame size={13} className={active ? 'text-orange-400' : 'text-slate-400'} />}
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-400">«Ключевая» помечает задачу огоньком <Flame size={11} className="inline text-orange-400" /> на доске.</p>
 
             <label className="mt-6 flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 px-3 py-2.5">
               <input
@@ -939,6 +975,22 @@ export default function TaskModal({ task, team = [], botUsername = null, onClose
                 <span className="block text-[11px] text-slate-400">Скрыта от клиента в его кабинете</span>
               </span>
             </label>
+
+            <div className="mt-6">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-widest text-slate-500">Вес задачи (1–10)</label>
+              {draft.weight === '' || draft.weight == null ? (
+                <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <span className="text-xs font-semibold text-amber-700">Вес не задан</span>
+                  <button type="button" onClick={() => setDraft((p) => ({ ...p, weight: 5 }))} className="text-xs font-bold text-[#3C50B4] hover:underline">Задать</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <input type="range" min="1" max="10" value={draft.weight} onChange={(e) => setDraft((p) => ({ ...p, weight: Number(e.target.value) }))} className="flex-1 accent-[#3C50B4]" />
+                  <span className="w-6 text-center text-sm font-black text-[#3C50B4]">{draft.weight}</span>
+                  <button type="button" onClick={() => setDraft((p) => ({ ...p, weight: '' }))} className="text-slate-300 hover:text-red-500" aria-label="Сбросить вес"><X size={14} /></button>
+                </div>
+              )}
+            </div>
 
             <div className="mt-6">
               <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">

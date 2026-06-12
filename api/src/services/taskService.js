@@ -112,6 +112,7 @@ function buildTaskDto(taskRow, related) {
     magicLink,
     isImportant: taskRow.tag === 'Ключевая',
     isInternal: Boolean(taskRow.is_internal),
+    weight: taskRow.weight ?? null,
     approvals,
     currentApproval,
     // Привязка клиента — для UI «Подключить Telegram»
@@ -199,7 +200,7 @@ export async function listTasks({ projectSlug, excludeInternal = false } = {}) {
 
   const tasksRes = await pool.query(
     `SELECT t.id, t.title, t.description, t.status, t.tag, t.deadline,
-            t.is_internal,
+            t.is_internal, t.weight,
             t.magic_link_token, t.created_at, t.updated_at,
             p.slug AS project_slug,
             c.id AS client_id,
@@ -222,7 +223,7 @@ export async function listTasks({ projectSlug, excludeInternal = false } = {}) {
 export async function getTaskById(id) {
   const tasksRes = await pool.query(
     `SELECT t.id, t.title, t.description, t.status, t.tag, t.deadline,
-            t.is_internal,
+            t.is_internal, t.weight,
             t.magic_link_token, t.created_at, t.updated_at,
             p.slug AS project_slug,
             c.id AS client_id,
@@ -338,6 +339,18 @@ export async function updateTaskFields(taskId, patch, { actorId = null } = {}) {
     params.push(Boolean(patch.isInternal));
     sets.push(`is_internal = $${params.length}`);
   }
+  // weight — целое 1–10 или null (вес не задан).
+  if ('weight' in patch) {
+    let w = patch.weight;
+    if (w === '' || w === undefined) w = null;
+    if (w !== null) {
+      const n = Number(w);
+      if (!Number.isInteger(n) || n < 1 || n > 10) throw new HttpError(400, 'Вес — целое от 1 до 10');
+      w = n;
+    }
+    params.push(w);
+    sets.push(`weight = $${params.length}`);
+  }
   if (sets.length === 0) {
     const existing = await getTaskById(taskId);
     if (!existing) throw new HttpError(404, 'Task not found');
@@ -362,7 +375,7 @@ export async function updateTaskFields(taskId, patch, { actorId = null } = {}) {
 
 /** Создание задачи. projectSlug обязателен. */
 export async function createTask(input, { actorId = null } = {}) {
-  const { projectSlug, title, description, status, tag, deadline, assigneeIds, isInternal } = input;
+  const { projectSlug, title, description, status, tag, deadline, assigneeIds, isInternal, weight } = input;
   if (!projectSlug) throw new HttpError(400, 'projectSlug required');
   if (!title) throw new HttpError(400, 'title required');
 
@@ -372,9 +385,10 @@ export async function createTask(input, { actorId = null } = {}) {
     const projectId = proj.rows[0].id;
 
     const taskId = randomUUID();
+    const w = Number.isInteger(Number(weight)) && Number(weight) >= 1 && Number(weight) <= 10 ? Number(weight) : null;
     await c.query(
-      `INSERT INTO tasks (id, project_id, title, description, status, tag, deadline, is_internal)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO tasks (id, project_id, title, description, status, tag, deadline, is_internal, weight)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         taskId,
         projectId,
@@ -384,6 +398,7 @@ export async function createTask(input, { actorId = null } = {}) {
         tag ?? 'Обычная',
         deadline ?? null,
         Boolean(isInternal),
+        w,
       ],
     );
 

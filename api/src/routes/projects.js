@@ -1,11 +1,20 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { listProjects, createProject, updateProject, archiveProject } from '../services/projectService.js';
+import { getProjectInfo, saveProjectInfo } from '../services/projectInfoService.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { pool } from '../db/pool.js';
 
 const router = Router();
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+// ── «О проекте»: описание/контакты/доступы (PM видит и правит) ────────────────
+router.get('/:id/info', wrap(async (req, res) => {
+  res.json(await getProjectInfo(req.params.id));
+}));
+router.put('/:id/info', wrap(async (req, res) => {
+  res.json(await saveProjectInfo(req.params.id, req.body ?? {}));
+}));
 
 router.get('/', async (_req, res, next) => {
   try {

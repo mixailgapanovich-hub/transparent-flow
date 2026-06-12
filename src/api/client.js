@@ -44,11 +44,18 @@ export const api = {
   login: (email, password) => json('POST', '/api/auth/login', { email, password }),
   logout: () => json('POST', '/api/auth/logout'),
   me: () => request('/api/auth/me'),
+  updateProfile: (name) => json('PATCH', '/api/auth/profile', { name }),
+  changePassword: (currentPassword, newPassword) =>
+    json('POST', '/api/auth/change-password', { currentPassword, newPassword }),
 
   // health & lookups
   health: () => request('/api/health'),
   listUsers: () => request('/api/users'),
   listProjects: () => request('/api/projects'),
+
+  // глобальные настройки агентства (имя + ссылка на сайт)
+  getSettings: () => request('/api/settings'),
+  updateSettings: (patch) => json('PUT', '/api/settings', patch),
 
   // bot username для построения t.me/<bot>?start=<clientId> deep-link
   botInfo: async () => {
@@ -75,8 +82,9 @@ export const api = {
     json('POST', `/api/tasks/${id}/assignees`, { userId }),
   requestClient: (id) =>
     json('POST', `/api/tasks/${id}/request-client`),
+  // Принять материалы клиента: задача возвращается «в работу» (не закрывается авто).
   acceptContent: (id) =>
-    json('POST', `/api/tasks/${id}/transition`, { toStatus: 'done' }),
+    json('POST', `/api/tasks/${id}/transition`, { toStatus: 'in-progress' }),
 
   // Цикл согласования (PM)
   submitForReview: (id, { message = '', link = '', files = [] } = {}) => {
@@ -152,6 +160,14 @@ export const api = {
   removeDependency: (taskId, dependsOnId) =>
     json('DELETE', `/api/tasks/${taskId}/dependencies/${dependsOnId}`),
 
+  // Раскладка майндмапа (PM-аудитория)
+  getTaskLayout: () => request('/api/tasks/layout'),
+  saveTaskLayout: (positions) => json('PUT', '/api/tasks/layout', { positions }),
+
+  // «О проекте» (PM: смотрит и правит)
+  getProjectInfo: (projectId) => request(`/api/projects/${projectId}/info`),
+  saveProjectInfo: (projectId, data) => json('PUT', `/api/projects/${projectId}/info`, data),
+
   // Клиентский кабинет (доступ по проектному токену, без логина)
   client: {
     get: (token) => request(`/api/client/${token}`),
@@ -163,6 +179,16 @@ export const api = {
     requestChanges: (token, taskId, comment) =>
       json('POST', `/api/client/${token}/tasks/${taskId}/approval/changes`, { comment }),
     fileDownloadUrl: (token, fileId) => `/api/client/${token}/files/${fileId}/download`,
+    // Раскладка майндмапа клиента (audience='client')
+    getLayout: (token) => request(`/api/client/${token}/layout`),
+    saveLayout: (token, positions) => json('PUT', `/api/client/${token}/layout`, { positions }),
+    // «О проекте» (клиент: только чтение, доступы отфильтрованы)
+    getInfo: (token) => request(`/api/client/${token}/info`),
+    // Telegram self-serve: получатели проекта + привязка нового чата
+    telegramRecipients: (token) => request(`/api/client/${token}/telegram/recipients`),
+    telegramOnboard: (token) => json('POST', `/api/client/${token}/telegram/onboarding`),
+    telegramRemove: (token, recipientId) =>
+      json('DELETE', `/api/client/${token}/telegram/recipients/${recipientId}`),
     suggestTask: (token, { title, description }) =>
       json('POST', `/api/client/${token}/suggest-task`, { title, description }),
     question: (token, text) =>

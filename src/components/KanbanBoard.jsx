@@ -5,10 +5,10 @@ import {
 } from '@dnd-kit/core';
 import {
   SortableContext, sortableKeyboardCoordinates,
-  verticalListSortingStrategy, useSortable
+  verticalListSortingStrategy, useSortable, arrayMove
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Clock, Plus, Edit2, Paperclip, Settings2, LayoutGrid, GitBranch, Flame, X, Smartphone } from 'lucide-react';
+import { Clock, Plus, Edit2, Paperclip, Search, LayoutGrid, GitBranch, Flame, X, Smartphone } from 'lucide-react';
 import { COLUMNS } from '../data/mockData';
 import TasksMindMapView from './TasksMindMapView';
 import { TASK_COLUMN_STYLES, TASK_TAG_BADGE, UI_BUTTON_STYLES, PROJECT_BADGE_STYLES } from '../theme/taskStyles';
@@ -81,7 +81,7 @@ const MobileTaskCard = ({ task, onClick, showProjectBadge }) => {
   );
 };
 
-const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCol, showProjectBadge, readOnly = false }) => {
+const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCol, showProjectBadge, readOnly = false, reorderable = false }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -89,8 +89,10 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCo
     opacity: isDragging ? 0.65 : 1,
     boxShadow: isDragging ? '0 16px 32px rgba(15, 23, 42, 0.16)' : undefined,
   };
-  // В read-only режиме не навешиваем drag-listeners: карточка только кликабельна.
-  const dragProps = readOnly ? {} : { ...attributes, ...listeners };
+  // Drag навешиваем, если карточка редактируемая (PM) ИЛИ разрешено переупорядочивание
+  // в своей колонке (клиент). В чистом read-only без reorderable — только клик.
+  const draggable = !readOnly || reorderable;
+  const dragProps = draggable ? { ...attributes, ...listeners } : {};
 
   const isUrgent = useMemo(() => {
     const diff = new Date(task.deadline) - new Date();
@@ -113,7 +115,7 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCo
       tabIndex={0}
       role="button"
       aria-label={`Открыть задачу: ${task.title}`}
-      className={`group relative p-4 rounded-xl border transition-all ${readOnly ? 'cursor-pointer' : 'cursor-grab'} mb-3
+      className={`group relative p-4 rounded-xl border transition-all ${draggable ? 'cursor-grab' : 'cursor-pointer'} mb-3
         ${isWaitingCol ? 'bg-orange-50/60 border-orange-200 border-l-4 border-l-orange-400 hover:border-orange-300' : isClientUploadedCol ? 'bg-teal-50/60 border-teal-200 border-l-4 border-l-teal-400 hover:border-teal-300' : isReviewCol ? 'bg-indigo-50/60 border-indigo-200 border-l-4 border-l-indigo-400 hover:border-indigo-300' : 'bg-white border-slate-100 shadow-sm hover:border-[#3C50B4]/30 hover:shadow-md'}
         focus:outline-none focus:ring-2 focus:ring-[#3C50B4]/20`}
     >
@@ -126,11 +128,19 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCo
           <Edit2 size={12} />
         </button>
       </div>
-      {task.isImportant && (
-        <Flame size={14} className="absolute right-3 top-3 text-orange-400 animate-pulse" aria-label="Важная задача" />
-      )}
       <div className="flex justify-between items-start mb-2">
-        <Badge type={task.tag} />
+        <span className="flex items-center gap-1.5">
+          <Badge type={task.tag} />
+          {task.isImportant && <Flame size={13} className="text-orange-400 animate-pulse shrink-0" aria-label="Ключевая задача" />}
+          {!readOnly && task.weight == null && (
+            <span
+              className="text-[9px] font-black uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 shrink-0"
+              title="Вес задачи не задан — в готовности считается как 1"
+            >
+              вес?
+            </span>
+          )}
+        </span>
         {isWaitingCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-600">Ждём клиента</span>}
         {isClientUploadedCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-600">Контент готов</span>}
         {isReviewCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600">На согласовании</span>}
@@ -153,31 +163,47 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCo
   );
 };
 
-const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly = false }) => {
+const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly = false, reorderable = false }) => {
   const { setNodeRef } = useDroppable({ id: column.id });
   const isWaiting = column.id === 'waiting';
   const isClientUploaded = column.id === 'client-uploaded';
   const isReview = column.id === 'review';
   const columnStyle = TASK_COLUMN_STYLES[column.id] ?? TASK_COLUMN_STYLES.backlog;
 
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const visible = q ? tasks.filter((t) => t.title.toLowerCase().includes(q)) : tasks;
+
   return (
-    <div className="flex h-full min-h-0 flex-col w-72 min-w-70">
-      <div className="flex items-center justify-between mb-4 px-1">
-        <h3 className={`text-sm font-bold uppercase tracking-widest ${columnStyle.headerText}`}>{column.title}</h3>
-        {!readOnly && (
-          <div className="flex items-center gap-1.5">
-            <button className={columnStyle.iconText} aria-label={`Настройки колонки ${column.title}`}>
-              <Settings2 size={16} />
-            </button>
-            <button className={columnStyle.iconText} aria-label={`Добавить задачу в ${column.title}`}>
-              <Plus size={18} />
-            </button>
-          </div>
+    <div className="flex h-full min-h-0 flex-col flex-1 min-w-[16rem]">
+      <div className="flex items-center justify-between gap-2 mb-4 px-1">
+        {searchOpen ? (
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по колонке…"
+            className="flex-1 min-w-0 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-[#3C50B4]"
+          />
+        ) : (
+          <h3 className={`text-sm font-bold uppercase tracking-widest truncate ${columnStyle.headerText}`}>
+            {column.title}
+            <span className="ml-1.5 text-slate-300">{tasks.length}</span>
+          </h3>
         )}
+        <button
+          type="button"
+          onClick={() => { setSearchOpen((o) => !o); if (searchOpen) setQuery(''); }}
+          className={`shrink-0 ${columnStyle.iconText}`}
+          aria-label={`Поиск по колонке ${column.title}`}
+        >
+          {searchOpen ? <X size={15} /> : <Search size={16} />}
+        </button>
       </div>
       <div ref={setNodeRef} className={`flex-1 min-h-0 overflow-y-auto rounded-2xl p-2 custom-scrollbar ${columnStyle.container}`}>
-        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map(task => (
+        <SortableContext items={visible.map(t => t.id)} strategy={verticalListSortingStrategy}>
+          {visible.map(task => (
             <TaskCard
               key={task.id}
               task={task}
@@ -187,6 +213,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly
               isReviewCol={isReview}
               showProjectBadge={showProjectBadge}
               readOnly={readOnly}
+              reorderable={reorderable}
             />
           ))}
         </SortableContext>
@@ -197,23 +224,22 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly
 
 const BoardProgress = ({ tasks }) => {
   const stats = useMemo(() => {
+    // Готовность считаем по ВЕСУ задач; невыставленный вес = 1.
+    const w = (t) => (Number.isInteger(t.weight) && t.weight >= 1 ? t.weight : 1);
     const total = tasks.length;
     const completed = tasks.filter(t => t.status === 'done').length;
-    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-    const totalPoints = tasks.reduce((acc, t) => acc + (t.storyPoints || 1), 0);
-    const completedPoints = tasks
-      .filter(t => t.status === 'done')
-      .reduce((acc, t) => acc + (t.storyPoints || 1), 0);
-    const remainingPoints = totalPoints - completedPoints;
-
-    return { percentage, completed, total, remainingPoints };
+    const totalW = tasks.reduce((acc, t) => acc + w(t), 0);
+    const doneW = tasks.filter(t => t.status === 'done').reduce((acc, t) => acc + w(t), 0);
+    const percentage = totalW > 0 ? Math.round((doneW / totalW) * 100) : 0;
+    const unset = tasks.filter(t => t.weight == null).length;
+    return { percentage, completed, total, doneW, totalW, unset };
   }, [tasks]);
 
   return (
     <div className="flex-1 max-w-md px-10 group relative cursor-help">
       <div className="w-full space-y-2">
         <div className="flex justify-between items-end">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Статус спринта</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Статус проекта</span>
           <span className="text-sm font-black text-[#3C50B4] bg-[#3C50B4]/5 px-2 py-0.5 rounded-lg">{stats.percentage}%</span>
         </div>
         <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden p-px border border-slate-200/50">
@@ -233,8 +259,14 @@ const BoardProgress = ({ tasks }) => {
           </div>
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-blue-400" />
-            <span className="font-bold uppercase tracking-wider">Осталось: {stats.remainingPoints} Story Points</span>
+            <span className="font-bold uppercase tracking-wider">По весу: {stats.doneW} / {stats.totalW}</span>
           </div>
+          {stats.unset > 0 && (
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-amber-400" />
+              <span className="font-bold uppercase tracking-wider">Вес не задан: {stats.unset}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -252,12 +284,15 @@ export default function KanbanBoard({
   onSubmitForReview,
   onAddDependency,
   onRemoveDependency,
+  onLoadLayout,
+  onSaveLayout,
   columns: propColumns,
   showProjectBadge = false,
   showColumnFilter = false,
   projectFilterLabel = null,
   onClearProjectFilter = null,
   readOnly = false,
+  reorderable = false,
   createLabel = null,
 }) {
   const columns = propColumns ?? COLUMNS;
@@ -303,6 +338,19 @@ export default function KanbanBoard({
     if (!activeTask) return;
     const newStatus = columns.find(c => c.id === overId) ? overId : tasks.find(t => t.id === overId)?.status;
     if (!newStatus) {
+      setActiveId(null);
+      return;
+    }
+    // Клиентский режим: переупорядочивание разрешено ТОЛЬКО внутри своей колонки.
+    // Межколоночный перенос игнорируем — карточка «отскакивает» обратно (нет смены state).
+    if (reorderable) {
+      if (newStatus === activeTask.status && over.id !== active.id && setTasks) {
+        setTasks((prev) => {
+          const from = prev.findIndex((t) => t.id === active.id);
+          const to = prev.findIndex((t) => t.id === over.id);
+          return from === -1 || to === -1 ? prev : arrayMove(prev, from, to);
+        });
+      }
       setActiveId(null);
       return;
     }
@@ -439,6 +487,31 @@ export default function KanbanBoard({
           </button>
         )}
 
+        {/* Переключатели видимости колонок — компактно, в той же строке (экономит высоту) */}
+        {showColumnFilter && boardView === 'kanban' && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {columns.map((col) => {
+              const isHidden = hiddenColumnIds.includes(col.id);
+              const style = TASK_COLUMN_STYLES[col.id] ?? TASK_COLUMN_STYLES.backlog;
+              return (
+                <button
+                  key={col.id}
+                  onClick={() => toggleColumn(col.id)}
+                  title={isHidden ? `Показать «${col.title}»` : `Скрыть «${col.title}»`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide border transition-all ${
+                    isHidden
+                      ? 'bg-slate-50 text-slate-300 border-slate-200 line-through'
+                      : `bg-white ${style.headerText} border-slate-200 shadow-sm`
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isHidden ? 'bg-slate-300' : 'bg-current opacity-70'}`} />
+                  {col.title}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {!showColumnFilter && <BoardProgress tasks={tasks} />}
 
         {projectFilterLabel && onClearProjectFilter && (
@@ -482,34 +555,10 @@ export default function KanbanBoard({
         </div>
       </div>
 
-      {showColumnFilter && boardView === 'kanban' && (
-        <div className="flex items-center gap-2 mb-5 flex-wrap">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mr-1">Колонки:</span>
-          {columns.map(col => {
-            const isHidden = hiddenColumnIds.includes(col.id);
-            const style = TASK_COLUMN_STYLES[col.id] ?? TASK_COLUMN_STYLES.backlog;
-            return (
-              <button
-                key={col.id}
-                onClick={() => toggleColumn(col.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${
-                  isHidden
-                    ? 'bg-slate-50 text-slate-300 border-slate-200'
-                    : `bg-white ${style.headerText} border-slate-200 shadow-sm`
-                }`}
-              >
-                {!isHidden && <div className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />}
-                {col.title}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {boardView === 'kanban' ? (
         <DndContext sensors={sensors} collisionDetection={kanbanCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="flex-1 min-h-0">
-            <div className="flex h-full min-h-0 items-stretch gap-8 overflow-x-auto pb-6 custom-scrollbar pr-10">
+            <div className="flex h-full min-h-0 items-stretch gap-5 overflow-x-auto pb-1 custom-scrollbar">
               {displayColumns.map((column) => (
                 <SortableColumn
                   key={column.id}
@@ -518,6 +567,7 @@ export default function KanbanBoard({
                   onTaskClick={onTaskClick}
                   showProjectBadge={showProjectBadge}
                   readOnly={readOnly}
+                  reorderable={reorderable}
                 />
               ))}
             </div>
@@ -538,6 +588,8 @@ export default function KanbanBoard({
             editable={!readOnly}
             onAddDependency={onAddDependency}
             onRemoveDependency={onRemoveDependency}
+            onLoadLayout={onLoadLayout}
+            onSaveLayout={onSaveLayout}
           />
         </div>
       )}

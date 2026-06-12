@@ -22,6 +22,7 @@ import {
 } from './notificationTemplates.js';
 import * as telegram from './channels/telegram.js';
 import * as email from './channels/email.js';
+import { resolveProjectChatIds } from './telegramRecipientsService.js';
 
 export const schedulerState = {
   running: false,
@@ -97,7 +98,7 @@ async function processOneTask(client, taskRow, now) {
   const check = await client.query(
     `SELECT t.id, t.status, t.magic_link_token, t.magic_link_expires_at,
             t.title, t.deadline,
-            p.name AS project_name, p.slug AS project_slug,
+            p.id AS project_id, p.name AS project_name, p.slug AS project_slug,
             c.id AS client_id, c.contact_name, c.email AS client_email,
             c.telegram_chat_id
        FROM tasks t
@@ -155,8 +156,22 @@ async function processOneTask(client, taskRow, now) {
   for (const ch of channels) {
     try {
       if (ch === 'telegram') {
-        const r = await telegram.send(t.telegram_chat_id, telegramBody);
-        deliveries.telegram = r;
+        // Доставляем ВСЕМ получателям проекта (project_telegram_recipients +
+        // легаси clients.telegram_chat_id). Успех канала = доставка хотя бы одному.
+        const chatIds = await resolveProjectChatIds(t.project_id);
+        if (chatIds.length === 0) {
+          deliveries.telegram = { ok: false, error: 'no-recipients' };
+        } else {
+          const results = [];
+          for (const cid of chatIds) {
+            try {
+              results.push({ chatId: cid, ...(await telegram.send(cid, telegramBody)) });
+            } catch (e) {
+              results.push({ chatId: cid, ok: false, error: e.message });
+            }
+          }
+          deliveries.telegram = { ok: results.some((r) => r.ok), recipients: results.length, results };
+        }
       } else if (ch === 'email') {
         const r = await email.send({ to: t.client_email, subject, text: emailText, html: emailHtml });
         deliveries.email = r;

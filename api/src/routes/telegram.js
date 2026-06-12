@@ -40,10 +40,39 @@ export async function handleUpdate(update) {
     return;
   }
 
-  // Ищем one-time token в таблице onboarding; SELECT FOR UPDATE блокирует гонку двойного использования.
+  // Ищем one-time token. Сначала project-токен (несколько получателей на проект),
+  // затем — старый client-токен (одна привязка). FOR UPDATE блокирует гонку двойного использования.
+  const label = msg.from?.first_name || null;
   let company = null;
   try {
     await withTransaction(async (c) => {
+      // 1) Project-onboarding (итерация 5): добавляем чат в получателей проекта.
+      const projRes = await c.query(
+        `SELECT pto.project_id, p.name AS project_name
+           FROM project_telegram_onboarding pto
+           JOIN projects p ON p.id = pto.project_id
+          WHERE pto.token = $1::uuid AND pto.used_at IS NULL AND pto.expires_at > now()
+          FOR UPDATE OF pto`,
+        [param],
+      );
+      if (projRes.rowCount > 0) {
+        const { project_id, project_name } = projRes.rows[0];
+        await c.query(
+          `INSERT INTO project_telegram_recipients (project_id, chat_id, username, label)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (project_id, chat_id)
+           DO UPDATE SET username = EXCLUDED.username, label = EXCLUDED.label`,
+          [project_id, chatId, username, label],
+        );
+        await c.query(
+          `UPDATE project_telegram_onboarding SET used_at = now() WHERE token = $1::uuid`,
+          [param],
+        );
+        company = project_name;
+        return;
+      }
+
+      // 2) Старый client-токен (одна привязка на клиента).
       const tokenRes = await c.query(
         `SELECT client_id FROM client_telegram_onboarding
           WHERE token = $1::uuid AND used_at IS NULL AND expires_at > now()

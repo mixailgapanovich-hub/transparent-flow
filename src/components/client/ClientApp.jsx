@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, MessageSquare, BookOpen, LayoutGrid, Bell } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, BookOpen, LayoutGrid, Bell, Info, Send } from 'lucide-react';
 import { api } from '../../api/client';
 import KanbanBoard from '../KanbanBoard';
 import TaskModal from '../task-modal/TaskModal';
@@ -8,19 +8,22 @@ import SendContentModal from './SendContentModal';
 import AskQuestionModal from './AskQuestionModal';
 import SuggestTaskModal from './SuggestTaskModal';
 import ActionPanel from './ActionPanel';
-import ProjectFeed from './ProjectFeed';
+import TelegramConnectModal from './TelegramConnectModal';
+import ProjectInfoModal from '../project-info/ProjectInfoModal';
 import NotificationsPage from '../notifications/NotificationsPage';
 import { useToastState, ToastContainer } from '../Toast';
 
-function ActionBtn({ icon: Icon, label, onClick, disabled }) {
+// Иконка-действие в шапке (как у PM-вида) — единый стиль с тултипом.
+function HeaderAction({ icon: Icon, label, onClick, color = 'hover:text-[#3C50B4]' }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
-      className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:border-[#3C50B4] hover:text-[#3C50B4] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
+      title={label}
+      aria-label={label}
+      className={`p-2 text-slate-400 transition-colors ${color}`}
     >
-      <Icon size={18} className="shrink-0" /> {label}
+      <Icon size={20} />
     </button>
   );
 }
@@ -30,10 +33,13 @@ export default function ClientApp({ token }) {
   const [loadError, setLoadError] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState(null);
-  const [view, setView] = useState('board'); // 'board' | 'feed' | 'kb'
+  const [view, setView] = useState('board'); // 'board' | 'kb'
   const [modal, setModal] = useState(null); // 'send' | 'ask' | 'suggest'
   const [uploadTaskId, setUploadTaskId] = useState(null);
+  const [activeId, setActiveId] = useState(null); // dnd: переупорядочивание в своей колонке
   const [notifOpen, setNotifOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [tgOpen, setTgOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { toasts, showToast } = useToastState();
 
@@ -54,10 +60,37 @@ export default function ClientApp({ token }) {
     return () => { cancelled = true; };
   }, [token, notifOpen]);
 
+  // Реал-тайм опросом (~10с): доска + бейдж. Пауза при перетаскивании,
+  // открытой карточке и на скрытой вкладке — чтобы не сбивать работу клиента.
+  const pollRef = useRef({});
+  useEffect(() => { pollRef.current = { activeId, selectedTaskId }; });
+  useEffect(() => {
+    const id = setInterval(async () => {
+      if (document.hidden) return;
+      api.client.notifications(token, { limit: 1 })
+        .then((r) => setUnreadCount(r.counts?.total ?? 0))
+        .catch(() => {});
+      const st = pollRef.current;
+      if (st.activeId || st.selectedTaskId) return;
+      try {
+        const d = await api.client.get(token);
+        const now = pollRef.current;
+        if (now.activeId || now.selectedTaskId) return;
+        setData(d);
+        setTasks(d.tasks ?? []);
+      } catch { /* тихо */ }
+    }, 10000);
+    return () => clearInterval(id);
+  }, [token]);
+
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
   const replaceTask = useCallback((updated) => {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   }, []);
+
+  // Раскладка майндмапа клиента (audience='client') — стабильные ссылки.
+  const loadLayout = useCallback(() => api.client.getLayout(token), [token]);
+  const saveLayout = useCallback((positions) => api.client.saveLayout(token, positions), [token]);
 
   const sendComment = async (message, anchor) => {
     if (!selectedTask) return;
@@ -87,17 +120,6 @@ export default function ClientApp({ token }) {
       const updated = await api.client.requestChanges(token, selectedTask.id, comment);
       replaceTask(updated);
       showToast('info', 'Отправлено на доработку менеджеру');
-    } catch (err) {
-      showToast('error', 'Не удалось отправить: ' + (err.detail || err.message));
-      throw err;
-    }
-  };
-
-  // Ответ из единой ленты (для произвольной задачи, не обязательно открытой в модалке).
-  const reply = async (taskId, message) => {
-    try {
-      const updated = await api.client.comment(token, taskId, { message });
-      replaceTask(updated);
     } catch (err) {
       showToast('error', 'Не удалось отправить: ' + (err.detail || err.message));
       throw err;
@@ -147,17 +169,31 @@ export default function ClientApp({ token }) {
               <LayoutGrid size={16} /> <span className="hidden sm:inline">Доска</span>
             </button>
             <button
-              onClick={() => setView('feed')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-colors ${view === 'feed' ? 'bg-[#3C50B4] text-white' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              <MessageSquare size={16} /> <span className="hidden sm:inline">Лента</span>
-            </button>
-            <button
               onClick={() => setView('kb')}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-colors ${view === 'kb' ? 'bg-[#3C50B4] text-white' : 'text-slate-500 hover:text-slate-800'}`}
             >
               <BookOpen size={16} /> <span className="hidden sm:inline">База знаний</span>
             </button>
+
+            {/* Действия (десктоп); на мобиле остаётся нижняя панель.
+                «Задать вопрос» — крупной заметной кнопкой; остальное — иконками. */}
+            <div className="hidden md:flex items-center gap-2 md:pl-3 md:ml-1 md:border-l border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModal('ask')}
+                className="flex items-center gap-2 rounded-xl bg-[#3C50B4] px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-blue-100 transition hover:brightness-95 active:scale-95"
+              >
+                <HelpCircle size={18} /> Задать вопрос
+              </button>
+              <HeaderAction icon={CloudUpload} label="Прислать контент" onClick={() => { setUploadTaskId(null); setModal('send'); }} />
+              {data.telegramBotConfigured && (
+                <HeaderAction icon={Send} label="Уведомления в Telegram" color="hover:text-[#229ED9]" onClick={() => setTgOpen(true)} />
+              )}
+              {data.supportChatUrl && (
+                <HeaderAction icon={MessageCircle} label="Telegram-чат" color="hover:text-[#229ED9]" onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} />
+              )}
+            </div>
+
             <button
               onClick={() => setNotifOpen(true)}
               className="relative p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
@@ -174,46 +210,49 @@ export default function ClientApp({ token }) {
         </header>
 
         <div className="flex-1 flex overflow-hidden">
-          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-6 overflow-hidden flex flex-col">
-            <div className="flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-auto p-3 md:p-8 custom-scrollbar">
+          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-5 overflow-hidden flex flex-col">
+            <div className="relative flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-auto p-3 md:p-6 pb-20 md:pb-6 custom-scrollbar">
                 {view === 'board' ? (
                   <>
+                    {/* «Требует вашего внимания» — баннером над доской на всю ширину */}
                     <ActionPanel tasks={tasks} onUpload={openUpload} onOpenTask={setSelectedTaskId} />
                     <KanbanBoard
                       tasks={tasks}
+                      setTasks={setTasks}
                       onTaskClick={setSelectedTaskId}
                       readOnly
+                      reorderable
                       createLabel="Предложить задачу"
                       onCreateTask={() => setModal('suggest')}
-                      activeId={null}
-                      setActiveId={() => {}}
+                      onLoadLayout={loadLayout}
+                      onSaveLayout={saveLayout}
+                      activeId={activeId}
+                      setActiveId={setActiveId}
                     />
                   </>
-                ) : view === 'feed' ? (
-                  <ProjectFeed tasks={tasks} onOpenTask={setSelectedTaskId} onReply={reply} />
                 ) : (
                   <KnowledgeBase clientFacingOnly />
                 )}
               </div>
+
+              {/* «О проекте» — плавающей кнопкой в углу доски (десктоп) */}
+              <button
+                type="button"
+                onClick={() => setInfoOpen(true)}
+                className="hidden md:flex absolute bottom-4 right-4 items-center gap-2 rounded-xl border border-[#3C50B4]/20 bg-white/90 px-4 py-2.5 text-sm font-bold text-[#3C50B4] shadow-lg backdrop-blur transition hover:bg-[#3C50B4] hover:text-white active:scale-95"
+              >
+                <Info size={18} /> О проекте
+              </button>
             </div>
           </main>
-
-          {/* Правая панель действий */}
-          <aside className="hidden lg:flex w-72 shrink-0 flex-col gap-3 border-l border-slate-100 p-6 bg-white overflow-y-auto">
-            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Действия</h2>
-            <ActionBtn icon={CloudUpload} label="Прислать контент" onClick={() => { setUploadTaskId(null); setModal('send'); }} />
-            {data.supportChatUrl && (
-              <ActionBtn icon={MessageCircle} label="Telegram-чат" onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} />
-            )}
-            <ActionBtn icon={HelpCircle} label="Задать вопрос" onClick={() => setModal('ask')} />
-            <ActionBtn icon={Lightbulb} label="Предложить задачу" onClick={() => setModal('suggest')} />
-          </aside>
         </div>
 
         {/* Мобильная панель действий */}
         <div className="lg:hidden flex items-center gap-2 border-t border-slate-100 bg-white px-3 py-2 overflow-x-auto shrink-0">
+          <button onClick={() => setInfoOpen(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><Info size={15} /> О проекте</button>
           <button onClick={() => { setUploadTaskId(null); setModal('send'); }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#3C50B4] text-white text-xs font-bold shrink-0"><CloudUpload size={15} /> Контент</button>
+          {data.telegramBotConfigured && <button onClick={() => setTgOpen(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><Send size={15} /> Telegram</button>}
           {data.supportChatUrl && <button onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><MessageCircle size={15} /> Чат</button>}
           <button onClick={() => setModal('ask')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><HelpCircle size={15} /> Вопрос</button>
           <button onClick={() => setModal('suggest')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><Lightbulb size={15} /> Задача</button>
@@ -267,6 +306,23 @@ export default function ClientApp({ token }) {
           source={{ kind: 'client', token }}
           onToast={showToast}
           onClose={() => setNotifOpen(false)}
+        />
+      )}
+
+      {infoOpen && (
+        <ProjectInfoModal
+          mode="client"
+          token={token}
+          projectName={data.project.name}
+          onClose={() => setInfoOpen(false)}
+        />
+      )}
+
+      {tgOpen && (
+        <TelegramConnectModal
+          token={token}
+          botConfigured={data.telegramBotConfigured}
+          onClose={() => setTgOpen(false)}
         />
       )}
 
