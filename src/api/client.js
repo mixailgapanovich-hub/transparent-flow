@@ -177,6 +177,11 @@ export const api = {
     saveLayout: (token, positions) => json('PUT', `/api/client/${token}/layout`, { positions }),
     // «О проекте» (клиент: только чтение, доступы отфильтрованы)
     getInfo: (token) => request(`/api/client/${token}/info`),
+    // Telegram self-serve: получатели проекта + привязка нового чата
+    telegramRecipients: (token) => request(`/api/client/${token}/telegram/recipients`),
+    telegramOnboard: (token) => json('POST', `/api/client/${token}/telegram/onboarding`),
+    telegramRemove: (token, recipientId) =>
+      json('DELETE', `/api/client/${token}/telegram/recipients/${recipientId}`),
     suggestTask: (token, { title, description }) =>
       json('POST', `/api/client/${token}/suggest-task`, { title, description }),
     question: (token, text) =>

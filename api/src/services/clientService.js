@@ -4,6 +4,7 @@
 
 import { pool, withTransaction } from '../db/pool.js';
 import { HttpError, listTasks, addComment } from './taskService.js';
+import { telegramState } from './channels/telegram.js';
 
 /** Полный DTO клиентского вида: проект, клиент, задачи (без внутренних). */
 export async function getProjectView(ctx) {
@@ -25,6 +26,7 @@ export async function getProjectView(ctx) {
       telegramLinked: ctx.client.telegramLinked,
     },
     supportChatUrl: ctx.client.supportChatUrl ?? null,
+    telegramBotConfigured: Boolean(telegramState.botUsername || process.env.TELEGRAM_BOT_USERNAME),
     team: [...teamMap.values()],
     tasks,
   };

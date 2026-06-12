@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, BookOpen, LayoutGrid, Bell, Info } from 'lucide-react';
+import { CloudUpload, HelpCircle, Lightbulb, MessageCircle, BookOpen, LayoutGrid, Bell, Info, Send } from 'lucide-react';
 import { api } from '../../api/client';
 import KanbanBoard from '../KanbanBoard';
 import TaskModal from '../task-modal/TaskModal';
@@ -8,6 +8,7 @@ import SendContentModal from './SendContentModal';
 import AskQuestionModal from './AskQuestionModal';
 import SuggestTaskModal from './SuggestTaskModal';
 import ActionPanel from './ActionPanel';
+import TelegramConnectModal from './TelegramConnectModal';
 import ProjectInfoModal from '../project-info/ProjectInfoModal';
 import NotificationsPage from '../notifications/NotificationsPage';
 import { useToastState, ToastContainer } from '../Toast';
@@ -38,6 +39,7 @@ export default function ClientApp({ token }) {
   const [activeId, setActiveId] = useState(null); // dnd: переупорядочивание в своей колонке
   const [notifOpen, setNotifOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [tgOpen, setTgOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { toasts, showToast } = useToastState();
 
@@ -161,6 +163,9 @@ export default function ClientApp({ token }) {
                 <HelpCircle size={18} /> Задать вопрос
               </button>
               <HeaderAction icon={CloudUpload} label="Прислать контент" onClick={() => { setUploadTaskId(null); setModal('send'); }} />
+              {data.telegramBotConfigured && (
+                <HeaderAction icon={Send} label="Уведомления в Telegram" color="hover:text-[#229ED9]" onClick={() => setTgOpen(true)} />
+              )}
               {data.supportChatUrl && (
                 <HeaderAction icon={MessageCircle} label="Telegram-чат" color="hover:text-[#229ED9]" onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} />
               )}
@@ -224,6 +229,7 @@ export default function ClientApp({ token }) {
         <div className="lg:hidden flex items-center gap-2 border-t border-slate-100 bg-white px-3 py-2 overflow-x-auto shrink-0">
           <button onClick={() => setInfoOpen(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><Info size={15} /> О проекте</button>
           <button onClick={() => { setUploadTaskId(null); setModal('send'); }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#3C50B4] text-white text-xs font-bold shrink-0"><CloudUpload size={15} /> Контент</button>
+          {data.telegramBotConfigured && <button onClick={() => setTgOpen(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><Send size={15} /> Telegram</button>}
           {data.supportChatUrl && <button onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><MessageCircle size={15} /> Чат</button>}
           <button onClick={() => setModal('ask')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><HelpCircle size={15} /> Вопрос</button>
           <button onClick={() => setModal('suggest')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 shrink-0"><Lightbulb size={15} /> Задача</button>
@@ -286,6 +292,14 @@ export default function ClientApp({ token }) {
           token={token}
           projectName={data.project.name}
           onClose={() => setInfoOpen(false)}
+        />
+      )}
+
+      {tgOpen && (
+        <TelegramConnectModal
+          token={token}
+          botConfigured={data.telegramBotConfigured}
+          onClose={() => setTgOpen(false)}
         />
       )}
 

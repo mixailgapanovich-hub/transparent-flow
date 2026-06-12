@@ -10,6 +10,11 @@ import { STORAGE_ROOT } from '../services/guestService.js';
 import { getLayout, savePositions } from '../services/layoutService.js';
 import { getProjectInfo } from '../services/projectInfoService.js';
 import {
+  createProjectOnboarding,
+  listProjectRecipients,
+  removeRecipient,
+} from '../services/telegramRecipientsService.js';
+import {
   getProjectView,
   addClientComment,
   applyClientUpload,
@@ -86,6 +91,17 @@ router.get('/:token/layout', wrap(async (req, res) => {
 }));
 router.put('/:token/layout', wrap(async (req, res) => {
   res.json(await savePositions('client', req.body?.positions ?? [], { projectId: req.clientCtx.project.id }));
+}));
+
+// Telegram self-serve: получатели проекта + привязка нового чата.
+router.get('/:token/telegram/recipients', wrap(async (req, res) => {
+  res.json(await listProjectRecipients(req.clientCtx.project.id));
+}));
+router.post('/:token/telegram/onboarding', wrap(async (req, res) => {
+  res.status(201).json(await createProjectOnboarding(req.clientCtx.project.id));
+}));
+router.delete('/:token/telegram/recipients/:recipientId', wrap(async (req, res) => {
+  res.json(await removeRecipient(req.clientCtx.project.id, req.params.recipientId));
 }));
 
 // Задать вопрос.
