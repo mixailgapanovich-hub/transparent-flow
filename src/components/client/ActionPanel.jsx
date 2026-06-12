@@ -37,32 +37,34 @@ export default function ActionPanel({ tasks, onUpload, onOpenTask }) {
         Требует вашего внимания
         <span className="rounded-full bg-[#3C50B4] px-2 py-0.5 text-[10px] text-white">{items.length}</span>
       </h3>
-      <div className="space-y-2">
+      {/* Плиткой — до 3 в ряд на широком экране, чтобы не занимать пол-экрана сверху */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {items.map(({ task, kind, label, cta }) => {
           const Icon = kind === 'upload' ? CloudUpload : ShieldCheck;
           const dl = deadlineLabel(task.deadline);
           return (
-            <div key={task.id} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3">
-              <Icon size={18} className={`shrink-0 ${kind === 'upload' ? 'text-orange-500' : 'text-indigo-500'}`} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold text-slate-800">{task.title}</p>
-                <p className="flex items-center gap-2 text-xs text-slate-400">
-                  <span className={`font-semibold ${kind === 'upload' ? 'text-orange-600' : 'text-indigo-600'}`}>{label}</span>
-                  {dl && (
-                    <span className={`flex items-center gap-1 ${dl.overdue ? 'text-red-500' : ''}`}>
-                      <Clock size={11} /> {dl.text}
-                    </span>
-                  )}
-                </p>
+            <button
+              key={task.id}
+              type="button"
+              onClick={() => (kind === 'upload' ? onUpload(task.id) : onOpenTask(task.id))}
+              className="flex flex-col gap-2 rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-[#3C50B4]/40 hover:shadow-sm"
+            >
+              <div className="flex items-start gap-2">
+                <Icon size={16} className={`mt-0.5 shrink-0 ${kind === 'upload' ? 'text-orange-500' : 'text-indigo-500'}`} />
+                <p className="line-clamp-2 text-[13px] font-bold leading-snug text-slate-800">{task.title}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => (kind === 'upload' ? onUpload(task.id) : onOpenTask(task.id))}
-                className="flex shrink-0 items-center gap-1 rounded-lg bg-[#3C50B4] px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-95"
-              >
-                {cta} <ChevronRight size={13} />
-              </button>
-            </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className={`text-[11px] font-semibold ${kind === 'upload' ? 'text-orange-600' : 'text-indigo-600'}`}>{label}</span>
+                {dl && (
+                  <span className={`flex shrink-0 items-center gap-0.5 text-[11px] ${dl.overdue ? 'text-red-500' : 'text-slate-400'}`}>
+                    <Clock size={10} /> {dl.text}
+                  </span>
+                )}
+              </div>
+              <span className="flex items-center gap-1 self-start rounded-lg bg-[#3C50B4] px-2.5 py-1 text-[11px] font-bold text-white">
+                {cta} <ChevronRight size={12} />
+              </span>
+            </button>
           );
         })}
       </div>

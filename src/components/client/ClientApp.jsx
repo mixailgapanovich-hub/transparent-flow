@@ -150,15 +150,20 @@ export default function ClientApp({ token }) {
               <BookOpen size={16} /> <span className="hidden sm:inline">База знаний</span>
             </button>
 
-            {/* Действия — иконками (десктоп); на мобиле остаётся нижняя панель */}
-            <div className="hidden md:flex items-center gap-0.5 md:pl-2 md:ml-1 md:border-l border-slate-100">
-              <HeaderAction icon={Info} label="О проекте" onClick={() => setInfoOpen(true)} />
+            {/* Действия (десктоп); на мобиле остаётся нижняя панель.
+                «Задать вопрос» — крупной заметной кнопкой; остальное — иконками. */}
+            <div className="hidden md:flex items-center gap-2 md:pl-3 md:ml-1 md:border-l border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModal('ask')}
+                className="flex items-center gap-2 rounded-xl bg-[#3C50B4] px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-blue-100 transition hover:brightness-95 active:scale-95"
+              >
+                <HelpCircle size={18} /> Задать вопрос
+              </button>
               <HeaderAction icon={CloudUpload} label="Прислать контент" onClick={() => { setUploadTaskId(null); setModal('send'); }} />
               {data.supportChatUrl && (
                 <HeaderAction icon={MessageCircle} label="Telegram-чат" color="hover:text-[#229ED9]" onClick={() => window.open(data.supportChatUrl, '_blank', 'noopener')} />
               )}
-              <HeaderAction icon={HelpCircle} label="Задать вопрос" onClick={() => setModal('ask')} />
-              <HeaderAction icon={Lightbulb} label="Предложить задачу" onClick={() => setModal('suggest')} />
             </div>
 
             <button
@@ -177,9 +182,9 @@ export default function ClientApp({ token }) {
         </header>
 
         <div className="flex-1 flex overflow-hidden">
-          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-6 overflow-hidden flex flex-col">
-            <div className="flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-auto p-3 md:p-8 custom-scrollbar">
+          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-5 overflow-hidden flex flex-col">
+            <div className="relative flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-auto p-3 md:p-6 pb-20 md:pb-6 custom-scrollbar">
                 {view === 'board' ? (
                   <>
                     {/* «Требует вашего внимания» — баннером над доской на всю ширину */}
@@ -202,6 +207,15 @@ export default function ClientApp({ token }) {
                   <KnowledgeBase clientFacingOnly />
                 )}
               </div>
+
+              {/* «О проекте» — плавающей кнопкой в углу доски (десктоп) */}
+              <button
+                type="button"
+                onClick={() => setInfoOpen(true)}
+                className="hidden md:flex absolute bottom-4 right-4 items-center gap-2 rounded-xl border border-[#3C50B4]/20 bg-white/90 px-4 py-2.5 text-sm font-bold text-[#3C50B4] shadow-lg backdrop-blur transition hover:bg-[#3C50B4] hover:text-white active:scale-95"
+              >
+                <Info size={18} /> О проекте
+              </button>
             </div>
           </main>
         </div>

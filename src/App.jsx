@@ -161,11 +161,14 @@ export default function App() {
     setReviewIntentId(null);
   }, []);
 
-  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save
-  const createTask = useCallback(() => {
+  // Мгновенно открывает модалку с пустым черновиком — POST летит только при Save.
+  // projectSlug задаёт проект новой задачи (из текущего фильтра/проекта); если не
+  // передан — оставляем выбор в модалке (по умолчанию первый проект).
+  const createTask = useCallback((projectSlug) => {
+    const slug = (typeof projectSlug === 'string' && projectSlug) || null;
     const draft = {
       id: DRAFT_ID,
-      projectId: 'proj-eco',
+      projectId: slug,
       title: '',
       status: 'backlog',
       tag: 'Обычная',
@@ -332,9 +335,9 @@ export default function App() {
   const loadTaskLayout = useCallback(() => api.getTaskLayout(), []);
   const saveTaskLayout = useCallback((positions) => api.saveTaskLayout(positions), []);
 
-  // Текущий проект для кнопки «О проекте» в правой панели: дашборд = proj-eco,
-  // вкладка «Задачи» = активный фильтр; иначе единого проекта нет.
-  const currentProjectSlug = activeTab === 'dashboard' ? 'proj-eco' : (activeTab === 'tasks' ? projectFilter : null);
+  // Текущий проект — только когда открыт конкретный проект на вкладке «Задачи».
+  // На дашборде единого проекта нет (там сводка по всем), поэтому «О проекте» там не показываем.
+  const currentProjectSlug = activeTab === 'tasks' ? projectFilter : null;
   const currentProject = currentProjectSlug ? (projects.find((p) => p.slug === currentProjectSlug) ?? null) : null;
 
   // Колбэк от гостевой страницы: сервер уже принял файлы и сменил статус.
@@ -425,7 +428,7 @@ export default function App() {
             {/* Действия проекта — иконками (бывшая правая панель) */}
             <div className="flex items-center gap-1">
               <button
-                onClick={createTask}
+                onClick={() => createTask(currentProjectSlug)}
                 title="Новая задача"
                 className="p-2 text-slate-400 hover:text-[#3C50B4] transition-colors"
                 aria-label="Новая задача"
@@ -514,13 +517,13 @@ export default function App() {
         <div className="flex-1 flex overflow-hidden">
           
           {/* КАНБАН-ЗОНА: Выделяем цветом и отступами */}
-          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-6 overflow-hidden flex flex-col">
+          <main className="flex-1 bg-[#F8FAFC] p-2 md:p-5 overflow-hidden flex flex-col">
 
             {/* Оболочка самого канбана — "белая доска" на сером фоне */}
             <div className="flex-1 bg-white rounded-2xl md:rounded-4xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
 
-              {/* Внутренний скролл только для доски */}
-              <div className="flex-1 overflow-auto p-3 md:p-8 pb-20 md:pb-8 custom-scrollbar">
+              {/* Внутренний скролл только для доски — отступы унифицированы по периметру */}
+              <div className="flex-1 overflow-auto p-3 md:p-6 pb-20 md:pb-6 custom-scrollbar">
   {(activeTab === 'dashboard' || activeTab === 'tasks') && tasksLoading ? (
     <div className="flex items-center justify-center h-full text-slate-400 font-machine text-sm">
       Загружаем задачи...
@@ -567,7 +570,7 @@ export default function App() {
           onLoadLayout={loadTaskLayout}
           onSaveLayout={saveTaskLayout}
           onTaskClick={openTask}
-          onCreateTask={createTask}
+          onCreateTask={() => createTask(projectFilter)}
           isAdmin={isAdmin}
           activeId={activeId}
           setActiveId={setActiveId}
@@ -596,6 +599,8 @@ export default function App() {
       <TaskModal
         key={selectedTask?.id ?? 'empty-task-modal'}
         task={selectedTask}
+        isNew={selectedTaskId === DRAFT_ID}
+        projects={projects}
         isSaving={isSavingTask}
         canDelete={canDeleteTask(selectedTask) && selectedTaskId !== DRAFT_ID}
         onDelete={async () => {
@@ -656,10 +661,11 @@ export default function App() {
         onSave={async (patch) => {
           // Черновик — создаём задачу через POST
           if (selectedTaskId === DRAFT_ID) {
+            const projectSlug = patch.projectId || selectedTask?.projectId || projects[0]?.slug || 'proj-eco';
             setIsSavingTask(true);
             try {
               const created = await api.createTask({
-                projectSlug: 'proj-eco',
+                projectSlug,
                 title: patch.title || 'Новая задача',
                 description: patch.description ?? '',
                 tag: patch.tag ?? 'Обычная',

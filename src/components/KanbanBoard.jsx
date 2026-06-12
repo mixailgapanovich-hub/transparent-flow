@@ -132,6 +132,14 @@ const TaskCard = ({ task, onClick, isWaitingCol, isClientUploadedCol, isReviewCo
         <span className="flex items-center gap-1.5">
           <Badge type={task.tag} />
           {task.isImportant && <Flame size={13} className="text-orange-400 animate-pulse shrink-0" aria-label="Ключевая задача" />}
+          {!readOnly && task.weight == null && (
+            <span
+              className="text-[9px] font-black uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 shrink-0"
+              title="Вес задачи не задан — в готовности считается как 1"
+            >
+              вес?
+            </span>
+          )}
         </span>
         {isWaitingCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-600">Ждём клиента</span>}
         {isClientUploadedCol && <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-600">Контент готов</span>}
@@ -168,7 +176,7 @@ const SortableColumn = ({ column, tasks, onTaskClick, showProjectBadge, readOnly
   const visible = q ? tasks.filter((t) => t.title.toLowerCase().includes(q)) : tasks;
 
   return (
-    <div className="flex h-full min-h-0 flex-col w-72 min-w-70">
+    <div className="flex h-full min-h-0 flex-col flex-1 min-w-[16rem]">
       <div className="flex items-center justify-between gap-2 mb-4 px-1">
         {searchOpen ? (
           <input
@@ -479,6 +487,31 @@ export default function KanbanBoard({
           </button>
         )}
 
+        {/* Переключатели видимости колонок — компактно, в той же строке (экономит высоту) */}
+        {showColumnFilter && boardView === 'kanban' && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {columns.map((col) => {
+              const isHidden = hiddenColumnIds.includes(col.id);
+              const style = TASK_COLUMN_STYLES[col.id] ?? TASK_COLUMN_STYLES.backlog;
+              return (
+                <button
+                  key={col.id}
+                  onClick={() => toggleColumn(col.id)}
+                  title={isHidden ? `Показать «${col.title}»` : `Скрыть «${col.title}»`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide border transition-all ${
+                    isHidden
+                      ? 'bg-slate-50 text-slate-300 border-slate-200 line-through'
+                      : `bg-white ${style.headerText} border-slate-200 shadow-sm`
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isHidden ? 'bg-slate-300' : 'bg-current opacity-70'}`} />
+                  {col.title}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {!showColumnFilter && <BoardProgress tasks={tasks} />}
 
         {projectFilterLabel && onClearProjectFilter && (
@@ -522,34 +555,10 @@ export default function KanbanBoard({
         </div>
       </div>
 
-      {showColumnFilter && boardView === 'kanban' && (
-        <div className="flex items-center gap-2 mb-5 flex-wrap">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mr-1">Колонки:</span>
-          {columns.map(col => {
-            const isHidden = hiddenColumnIds.includes(col.id);
-            const style = TASK_COLUMN_STYLES[col.id] ?? TASK_COLUMN_STYLES.backlog;
-            return (
-              <button
-                key={col.id}
-                onClick={() => toggleColumn(col.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${
-                  isHidden
-                    ? 'bg-slate-50 text-slate-300 border-slate-200'
-                    : `bg-white ${style.headerText} border-slate-200 shadow-sm`
-                }`}
-              >
-                {!isHidden && <div className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />}
-                {col.title}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {boardView === 'kanban' ? (
         <DndContext sensors={sensors} collisionDetection={kanbanCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="flex-1 min-h-0">
-            <div className="flex h-full min-h-0 items-stretch gap-8 overflow-x-auto pb-6 custom-scrollbar pr-10">
+            <div className="flex h-full min-h-0 items-stretch gap-5 overflow-x-auto pb-1 custom-scrollbar">
               {displayColumns.map((column) => (
                 <SortableColumn
                   key={column.id}

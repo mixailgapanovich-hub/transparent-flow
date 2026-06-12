@@ -21,8 +21,11 @@ export default function ClientRequestsModal({ tasks = [], onClose, onOpenTask })
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div>
-            <h3 className="flex items-center gap-2 text-base font-black text-slate-900"><Link2 size={18} className="text-[#3C50B4]" /> Ссылки клиенту</h3>
-            <p className="text-[11px] text-slate-400">Задачи, ожидающие материалов — скопируйте ссылку и отправьте клиенту</p>
+            <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
+              <Link2 size={18} className="text-[#3C50B4]" /> Ссылки клиенту
+              {waiting.length > 0 && <span className="rounded-full bg-[#3C50B4] px-2 py-0.5 text-[10px] text-white">{waiting.length}</span>}
+            </h3>
+            <p className="text-[11px] text-slate-400">Активные ссылки на загрузку (задачи в статусе «Ждём клиента»). Согласование и уже загруженное — в уведомлениях и на дашборде.</p>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600" aria-label="Закрыть"><X size={18} /></button>
         </header>

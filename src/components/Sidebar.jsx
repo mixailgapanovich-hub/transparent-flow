@@ -30,7 +30,7 @@ export default function Sidebar({
   const recent = projects.slice(0, 5);
 
   return (
-    <aside className="hidden md:flex w-44 h-full flex-col py-6 px-3 bg-white border-r border-slate-100 flex-shrink-0">
+    <aside className="hidden md:flex w-48 h-full flex-col py-6 px-3 bg-white border-r border-slate-100 flex-shrink-0">
       {/* Логотип + вордмарк */}
       <div className="flex items-center gap-2.5 px-2 mb-8">
         <div className="bg-[#3C50B4] p-2 rounded-xl shadow-lg shadow-blue-100 shrink-0">
